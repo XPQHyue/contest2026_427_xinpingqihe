@@ -59,6 +59,7 @@ contest2026_427_xinpingqihe/
 │   ├── PHYWEAR_SIM_ARCHIVE_NOTES.md  # 模拟器成果归档说明
 │   └── TEAM_INFO.md          # 队伍信息表（队伍/分工/选题/进度）
 ├── logs/XPQHyue/             # AI Coding 日志（claude-code + codex，官方格式校验通过）
+├── supplementary/dsh-logs/   # 补充佐证：DeepSeek Harness 开发会话摘要（非官方日志，不计工时）
 ├── README.md                 # 本文件（作品说明）
 ├── openvela.xml              # openvela 基线清单
 └── contest2026_427_xinpingqihe.xml   # 队伍清单（linkfile 映射）
@@ -129,6 +130,8 @@ PY
 > 支持的 4 种工具（claude-code / opencode / codex / kiro）之列**，其会话**无法导入官方
 > 事件 schema**（`event.schema.json` 的 `tool` 枚举不含 harness），因此**未计入 `logs/`**，
 > 不计入 AI 工时统计。本仓 AI Coding 日志仅含官方支持工具（claude-code / codex）的实际会话。
+> 为体现该通道的开发过程与工作量，特将 DSH 会话整理为可读摘要置于
+> `supplementary/dsh-logs/DSH_SESSIONS_SUMMARY.md`（**仅补充佐证，不计 AI 官方分**）。
 
 ---
 
