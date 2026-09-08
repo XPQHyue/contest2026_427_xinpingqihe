@@ -7,14 +7,18 @@
 
 ## 内容
 
+- **`raw/`** — 去重后 **13 场** DSH 会话的**原始事件子集**（`<session-id>.jsonl`，每行原始 JSON，
+  含 user/message、assistant/message、tool/call、todo/write、goal/change、session；剔除了 ~95%
+  chunk/reasoning 回显以控体积，但每行仍是原始事件，可逐行核实、可对原始全量溯源）。见 `raw/README.md`。
 - **`DSH_SESSIONS_SUMMARY.md`** — 去重后 **13 个会话**的逐场摘要（日期 / 体量 / 工具使用 /
-  任务清单 / 用户关键指令 / 助手要点），汇总自各会话原始 `session.jsonl`。
+  任务清单 / 用户关键指令 / 助手要点），供快速概览。
 
-## 为什么用可读摘要而非原始 jsonl
+## 为什么这样组织
 
-- 评审可读、可核实：摘要保留每场的**真实用户指令、工具调用、todo 拆解**，直接反映开发内容与工作量。
-- 仓库不臃肿：原始会话共 ~46MB（13 场 JSONL），且含大量系统/授权切换噪音；摘要仅 52KB，信息密度更高。
-- 原始 `session.jsonl` 在本机 `/home/xpqh/下载/`（`dsh-session-*.zip`）与 `/home/xpqh/.dsh/sessions/` 可回溯。
+- **坚实证据**：`raw/*.jsonl` 是原始事件的忠实子集，评委可逐行核实（摘要只是概览）。
+- **可读与可核查兼顾**：摘要看流程，原始子集看实据。
+- **仓库可控**：全量 13 场 `session.jsonl` 共 ~114MB（含大量 chunk/reasoning 噪音），子集后 ~40MB，
+  兼顾确证力与仓库体积。
 
 ## 覆盖的开发内容（对应官方日志覆盖之外的通道）
 
