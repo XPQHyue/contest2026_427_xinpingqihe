@@ -1,0 +1,34 @@
+# ============================================================
+# contest2026_427_xinpingqihe — .gitignore
+#
+# 忽略编译产物/本机杂项，避免误提交。
+# 注意：logs/ 下导出的 AI Coding 日志必须提交，不要忽略！
+# ============================================================
+
+# Build artifacts
+build/
+out/
+cmake_out/
+*.o
+*.a
+*.so
+*.elf
+*.hex
+*.map
+*.bin
+*.img
+*.dfu
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Logs/caches (keep our submitted logs/ but ignore scratch)
+*.pyc
+__pycache__/
+
+# Local scratch (DO NOT ignore logs/ itself)
+/tmp/

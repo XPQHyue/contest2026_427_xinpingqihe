@@ -1,0 +1,42 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+menuconfig EXAMPLES_PHYWEAR
+	tristate "PhyWear sensor display"
+	default n
+	depends on GRAPHICS_LVGL
+	---help---
+		Enable the PhyWear wrist physics-lab sensor display app.
+		Reads IMU/magnetometer/ambient-light and shows values on LVGL cards.
+
+if EXAMPLES_PHYWEAR
+
+config EXAMPLES_PHYWEAR_PRIORITY
+	int "phywear task priority"
+	default 100
+
+config EXAMPLES_PHYWEAR_STACKSIZE
+	int "phywear stack size"
+	default 16384
+
+config EXAMPLES_PHYWEAR_SIM
+	bool "phywear simulator mode (tolerate missing sensor devices)"
+	default n
+	---help---
+		Run the GUI even when /dev/lsm6dsl0|mag0|light0 are absent (openvela
+		emulator has no sensor drivers).  Missing sensors show placeholder
+		values; used for i18n/visual acceptance only - keep off on device.
+
+config EXAMPLES_PHYWEAR_SIM_ZH_DEMO
+	bool "phywear simulator: force Chinese + auto-demo for screenshot"
+	default n
+	depends on EXAMPLES_PHYWEAR_SIM
+	---help---
+		Emulator-only flag for screenshot capture.  Forces pw_i18n_set_zh(true)
+		and enables demo auto-navigation (root->raw/mech/tool/time/every->about)
+		so every page can be captured from /dev/fb0 without interactive input.
+		Must be OFF on real device.
+
+endif # EXAMPLES_PHYWEAR
