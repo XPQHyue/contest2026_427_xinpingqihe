@@ -50,15 +50,25 @@
   - **vendor_sifli #31** — 底层驱动：NuttX LCD/framebuffer 驱动、双缓冲、EPIC 图形加速 HAL、DMA 拷贝。
   - **apps_graphics_lvgl #41** — LVGL 渲染后端：注册 SiFli EPIC draw unit（fill/border/image/label/layer offload 到 EPIC）。
   - **nuttx-apps #121** — 编译构建支持。
-- **本队在此基础上的工作（原创）**：
-  1. **3 个新传感器驱动 + 板级 bringup**：MMC5603 地磁、LTR-303 环境光、模拟麦克风（DMA）——已提
-     **nuttx PR #378**。
-  2. **触控修复**：在 EPIC 显示栈上恢复 FT6146 电容触控。
-  3. **PhyWear 全中文 LVGL 应用**（42 文件，phyphox 式物理实验/工具/页面）。
-  4. **UI/算法层优化**：弃用 lv_chart，自研 `pw_scope`/`pw_graph`（CPU 光栅 + `lv_image`）以走通
-     EPIC 的 **IMAGE 硬件 blit** 路径 —— 正是这层优化把渲染推到 **真机 43 FPS**；同一优化也使
-     **模拟器**（无 EPIC）从"原本非常卡"提升到 **22–23 FPS**。
-  5. **AI 全流程辅助开发**（Claude Code + Codex）。
+- **本队在此基础上的工作（原创）**：见下方「本队主要贡献（量化）」。
+- **AI 全流程辅助开发**（Claude Code + Codex）。
+
+### 本队主要贡献（量化，如实）
+
+在官方 EPIC 硬件加速基础上，本队独立完成 **驱动 → 算法 → 应用 → 优化 → 工程化** 全链路：
+
+| # | 方向 | 产出 | 规模（可核实） |
+|---|---|---|---|
+| ① | **新传感器驱动（硬件适配核心）** | MMC5603 地磁（含 auto-SR 偏置修复）、LTR-303 环境光、模拟麦克风（DMA 采集）3 个 NuttX 字符设备驱动 + 两板 I2C 注册/bringup | **1,505 行**；已提 **nuttx PR #378**（checkpatch/CLA 通过） |
+| ② | **触控适配** | 在官方 EPIC 显示栈上修复 FT6146 电容触控，使 UI 可交互 | `sf32lb52_mic` 之后的 `6073074` 提交 |
+| ③ | **PhyWear 应用** | LVGL 全中文腕上物理工坊：15 个实验/工具/页面（原始传感器、力学 3、声学、工具 4、计时 3、生活） | **32 文件 / 10,808 行**（手写，不含生成的字体） |
+| ④ | **物理算法与图表库（自研）** | radix-2 FFT、自相关测周期、向心 a-ω² 最小二乘；自研实时曲线控件 `pw_graph`/`pw_scope`（CPU 光栅 + `lv_image`） | **1,600 行** |
+| ⑤ | **性能工程** | 弃用 lv_chart，走通 **EPIC IMAGE 硬件 blit** 路径 → **真机 3 → 43 FPS（×14）**；同一优化使**模拟器**从"很卡" → **22–23 FPS** | 真机 +1333% |
+| ⑥ | **国际化（i18n/CJK）** | EN/ZH 双语言字符串表 **388 条**；Montserrat + Droid 子集生成 **5 档 CJK 字体**（14/16/20/24/28px） | 589 行表 + 5 字体 |
+| ⑦ | **工程化与验证** | 自建 **goldfish-phywear 模拟器板级配置**；bench 注入 + FPS/空闲堆统计；中文界面截图证据；git 标签回归 | 模拟器配置 + bench 工具 |
+| ⑧ | **AI 辅助开发** | Claude Code + Codex **43 个官方会话**（validate-log 通过）+ 自建 Skill `phywear-sf32lb52-devloop` | `logs/XPQHyue/`；DSH 补充 13 会话 |
+
+> **一句话**：官方给了 EPIC "发动机"，本队完成了**传感器驱动、物理算法、完整应用、性能调优、国际化、工程验证**——把黄山派真正做成一台可用的腕上物理工坊。
 
 > ⚠️ 灵感来源：玩法/实验场景源自 **phyphox**（RWTH Aachen，**GPL v3**）；本作以 **C + LVGL 独立重实现**（未复制其代码），源码为 Apache-2.0。详见 `app/phywear/NOTICE.md`。
 
