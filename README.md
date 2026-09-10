@@ -148,6 +148,7 @@ contest2026_427_xinpingqihe/
 ├── docs/
 │   ├── evidence/             # 中文界面核心截图（根屏 + Raw Sensors 页）
 │   ├── project/              # 项目文档（黄山派 readme / 目标 / 优化 / UI 规范 / FPS 时序）
+│   ├── token_usage/          # Token 用量证据（小米 MiMo 导出 + 说明）
 │   ├── PHYWEAR_SIM_ARCHIVE_NOTES.md  # 模拟器成果归档说明
 │   └── TEAM_INFO.md          # 队伍信息表（队伍/分工/选题/进度）
 ├── logs/XPQHyue/             # AI Coding 日志（claude-code + codex，官方格式校验通过）
@@ -223,12 +224,22 @@ PY
 
 **完整对话日志**见 `logs/XPQHyue/`（claude-code + codex，已用官方 `validate-log.py` 校验通过）。
 
+**Token 用量（真实数据）**：
+
+| 工具 | Tokens | 计入官方 logs/ | 证据 |
+|---|---|---|---|
+| **小米 MiMo**（Claude Code 所用模型 `mimo-v2.5-pro`） | **451,358,504**（5,398 次请求） | ✅ 是（Claude Code 为官方支持工具） | 控制台导出 `docs/token_usage/token_plan_usage_data_202601_202612_2625305870.xlsx` |
+| **DeepSeek Harness** | **1,874,519,405** | ❌ 否（非官方支持工具） | `supplementary/dsh-logs/`（13 场会话） |
+| **合计** | **约 2,325,877,909** | — | — |
+> ✅ Token 数字**完全由导出文件支撑**（2026-08 与 2026-09 两条月度记录，合计 451,358,504 tokens / 5,398 次请求），
+> 无估算。详见 `docs/token_usage/README.md`。
+
 > **如实声明**：我们另通过 **DeepSeek Harness** 进行过规划与长周期任务。它**不在官方
 > 支持的 4 种工具（claude-code / opencode / codex / kiro）之列**，其会话**无法导入官方
 > 事件 schema**（`event.schema.json` 的 `tool` 枚举不含 harness），因此**未计入 `logs/`**，
-> 不计入 AI 工时统计。本仓 AI Coding 日志仅含官方支持工具（claude-code / codex）的实际会话。
-> 为体现该通道的开发过程与工作量，特将 DSH 会话整理为可读摘要置于
-> `supplementary/dsh-logs/DSH_SESSIONS_SUMMARY.md`（**仅补充佐证，不计 AI 官方分**）。
+> 不计入 AI 工时统计（其 **1,874,519,405 tokens** 用量已如实单列）。本仓 AI Coding 日志仅含
+> 官方支持工具（claude-code / codex）的实际会话。为体现该通道的开发过程与工作量，特将 DSH 会话
+> 整理为可读摘要置于 `supplementary/dsh-logs/DSH_SESSIONS_SUMMARY.md`（**仅补充佐证，不计 AI 官方分**）。
 
 ---
 
