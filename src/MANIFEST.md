@@ -39,6 +39,7 @@
 ### 芯片层：SF32LB52 EPIC / 启动 / 内存 / Flash
 | 文件 | 关键 commit |
 |---|---|
+| `boards/sf32lb52/sf32lb52_lchspi_ulp/configs/nsh/defconfig` | **真机 EPIC 使能配置**：`CONFIG_BSP_USING_EPIC=y` + `CONFIG_LV_USE_SIFLI_EPIC=y` + `CONFIG_EXAMPLES_PHYWEAR=y`（43 FPS 的构建配置） |
 | `chips/sf32lb52/sf32lb52_epic.c` | `1814868`（官方 EPIC LCD/FB + 硬件加速 PR #31） |
 | `chips/sf32lb52/include/sf32lb52_epic.h` | 同上 |
 | `chips/drivers/hal/bf0_hal_epic.c` | EPIC HAL（适配） |

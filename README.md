@@ -25,6 +25,12 @@
 - 腕上 UI：LVGL 全中文 + 大字体卡片 + phyphox 式界面。✅
 - 独立运行：算法端侧完成、不依赖手机（无 BLE/WiFi/手机通信代码）；摆测g/弹簧/向心结果经 UART 串口打印。✅
 
+**性能与平台（如实说明，勿误解为"模拟器也 43 FPS"）**：
+- **真机（黄山派 SF32LB52）**：LVGL + **EPIC GPU 硬件加速** → 全场景平均 **43 FPS**（flush 0ms）；优化前约 3 FPS。EPIC 是 SF32LB52 的专属显示硬件。
+- **模拟器（goldfish-arm64-v8a，无 EPIC 硬件、纯软件渲染）**：经**UI/算法层优化**（弃用 lv_chart、自研 pw_scope/pw_graph 的 CPU 光栅 + lv_image 路径）后由"原本非常卡"提升到 **22–23 FPS** 稳定。
+- 即：**43 FPS 需真机硬件**；评委无板时以**代码 + 实测证据**（`docs/project/fps_timeline.png`、`phywear_optimizations.md`）核验。
+- EPIC 使能配置：`sf32lb52_lchspi_ulp/configs/nsh/defconfig`（`CONFIG_BSP_USING_EPIC=y` + `CONFIG_LV_USE_SIFLI_EPIC=y`）。
+
 **未实现（规划中，如实标注，不冒充）**：
 - AI Agent 主动交互（运动模式识别 / 主动弹建议 / 语音快捷启动）——**未实现**（无 ai_agent 集成、无 AI 代码，i18n 标"教练规划中"）。
 - 弹性碰撞能量损耗、历史频率追踪、音频发生器（PWM 喇叭）、多普勒效应——**未实现**（声学需喇叭硬件）。
@@ -95,11 +101,14 @@ contest2026_427_xinpingqihe/
 ├── app/phywear/              # ⭐ PhyWear 应用源码（LVGL，42 文件，含 CJK 字体/i18n）
 ├── src/                      # ⭐ 全量源码快照（含来源清单 src/MANIFEST.md）
 │   ├── nuttx/                #   新传感器驱动（mmc5603/ltr303/lsm6dsl）+ 头文件
-│   ├── vendor/sifli/         #   黄山派 BSP（lckfb_huangshan_pi）+ SF32LB52 芯片层 EPIC 适配
+│   ├── vendor/sifli/         #   黄山派 BSP + SF32LB52 芯片层 EPIC + 真机 EPIC defconfig
+│   │                         #   (sf32lb52_lchspi_ulp/configs/nsh/defconfig)
 │   ├── vendor/openvela/      #   goldfish-phywear 模拟器板级配置
 │   ├── lvgl/                 #   LVGL EPIC 硬件加速后端（draw/sifli）
 │   └── MANIFEST.md           #   逐文件来源/分支/commit 说明（证明工作量）
-├── board/goldfish-phywear.defconfig   # 模拟器 defconfig（亦可读 src/ 下完整版）
+├── board/
+│   ├── sf32lb52_lchspi_ulp-nsh-epic.defconfig  # ⭐ 真机 EPIC 使能配置（速览用）
+│   └── goldfish-phywear.defconfig              # 模拟器 defconfig
 ├── .claude/skills/           # 自建 Skill（phywear-sf32lb52-devloop）—— 见第六节
 ├── docs/
 │   ├── evidence/             # 中文界面核心截图（根屏 + Raw Sensors 页）
@@ -130,16 +139,22 @@ repo sync -c -j8
 ```
 
 ### 1) 编译
+> ⚠️ **前提**：本仓 `app/phywear` 依赖公共仓的驱动/EPIC 改动。在公共仓 PR 合入前，`repo sync`
+> 得到的公共仓不含这些改动，会因缺 `nuttx/sensors/mmc5603.h`、`ltr303.h` 及 LVGL EPIC 后端而
+> **编译失败**。公共仓 PR 状态见第七节末。
+
 ```bash
-cd /home/xpqh/openvela
+cd <openvela 工作区根>
 export PATH="$PWD/prebuilts/build-tools/linux-x86_64/bin:$PWD/prebuilts/gcc/linux-x86_64/aarch64-none-elf/bin:$PWD/prebuilts/gcc/linux-x86_64/arm-none-eabi/bin:$PWD/prebuilts/tools/linux/x86_64:$PWD/prebuilts/tools/bin:$PATH"
-# 模拟器（goldfish-arm64-v8a-ap-phywear）：
-./build.sh vendor/openvela/boards/vela/configs/goldfish-arm64-v8a-ap-phywear -j8
-# 真机（黄山派 NSH）：
+# 真机（SF32LB52，EPIC 硬件加速使能）：
 ./build.sh vendor/sifli/boards/sf32lb52/sf32lb52_lchspi_ulp/configs/nsh -j8
+# 模拟器（goldfish-arm64-v8a，无 EPIC）：
+./build.sh vendor/openvela/boards/vela/configs/goldfish-arm64-v8a-ap-phywear -j8
 ```
 > 若真机编译在自研传感器驱动上因 `-Werror` 失败，configure 加
 > `-DEXTRA_FLAGS="-Wno-error -Wno-cpp -Wno-deprecated-declarations"`。
+> EPIC 使能项见 `board/sf32lb52_lchspi_ulp-nsh-epic.defconfig`（`CONFIG_BSP_USING_EPIC=y`、
+> `CONFIG_LV_USE_SIFLI_EPIC=y`）。
 
 ### 2) 部署 & 运行
 - **模拟器**：`DISPLAY=:0 ./emulator.sh cmake_out/vela_goldfish-arm64-v8a-ap-phywear/`，
@@ -205,8 +220,27 @@ PY
   Raw Sensors 页）截图（`docs/evidence/`）。模拟器窗口为黑是 qemu goldfish 显示架构限制
   （GPU 合成层与 `/dev/fb0` 不互通），**非功能缺陷**——真实 UI 在 `/dev/fb0`，本仓证据即
   读 `/dev/fb0` 所得。
-- **性能证据**：LVGL + EPIC GPU 加速把渲染从 ~3 FPS 提到 **43 FPS**（`docs/project/phywear_optimizations.md`
-  有 bench 数据；`docs/project/fps_timeline.png` 时序图）。
+- **性能证据（分层说明，勿混淆平台）**：
+  - **真机（SF32LB52，EPIC 硬件加速）**：全场景平均 **43 FPS**（flush 0ms），优化前约 3 FPS。
+    依据：`docs/project/phywear_optimizations.md` + `docs/project/fps_timeline.png`。
+  - **模拟器（goldfish，无 EPIC 硬件）**：经 UI/算法层优化从"原本非常卡"到 **22–23 FPS** 稳定
+    （弃用 lv_chart、自研 `pw_scope`/`pw_graph` 的 CPU 光栅 + `lv_image` 路径）。
+  - **结论**：43 FPS 需**真机硬件**；模拟器上限约 22–23 FPS。评委无板时以**代码 + 上述实测证据**
+    核验硬件适配与优化，而非在模拟器上复现 43 FPS。
+- **EPIC 使能方式**：真机构建配置 `sf32lb52_lchspi_ulp/configs/nsh/defconfig`
+  （`CONFIG_BSP_USING_EPIC=y`、`CONFIG_LV_USE_SIFLI_EPIC=y`、`CONFIG_EXAMPLES_PHYWEAR=y`）；
+  亦见 `board/sf32lb52_lchspi_ulp-nsh-epic.defconfig`（同内容，便于速览）。
+
+### 公共仓改动提交状态（重要，影响"评委能否编译"）
+
+- 本仓 `src/` 是驱动/BSP/EPIC 的**源码快照**；真正要让评委 `repo sync` 后**编译通过并含 EPIC**，
+  需把这些改动 **PR 到对应 openvela 公共仓**（官方指引："参赛仓库不足以满足适配需求时，可在公共仓
+  nuttx 仓库提交 PR"）。涉及：
+  - **nuttx**：`mmc5603`/`ltr303` 驱动与头文件（否则 `phywear_sensors.c` 缺头编译失败）
+  - **apps_graphics_lvgl**：`src/draw/sifli/epic/` EPIC 后端
+  - **vendor_sifli**：黄山派 BSP + `sf32lb52_epic.c` 芯片层 + EPIC 真机 defconfig
+- 状态：**进行中**（详见本仓 PR 记录）。在公共仓 PR 合入前，评委 clone 专属仓**编译会遇到缺依赖**——
+  这一点如实说明，不做"已完全可编译"的表述。
 
 ---
 
