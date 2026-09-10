@@ -26,9 +26,10 @@
 - 独立运行：算法端侧完成、不依赖手机（无 BLE/WiFi/手机通信代码）；摆测g/弹簧/向心结果经 UART 串口打印。✅
 
 **性能与平台（如实说明，勿误解为"模拟器也 43 FPS"）**：
-- **真机（黄山派 SF32LB52）**：LVGL + **EPIC GPU 硬件加速** → 全场景平均 **43 FPS**（flush 0ms）；优化前约 3 FPS。EPIC 是 SF32LB52 的专属显示硬件。
-- **模拟器（goldfish-arm64-v8a，无 EPIC 硬件、纯软件渲染）**：经**UI/算法层优化**（弃用 lv_chart、自研 pw_scope/pw_graph 的 CPU 光栅 + lv_image 路径）后由"原本非常卡"提升到 **22–23 FPS** 稳定。
-- 即：**43 FPS 需真机硬件**；评委无板时以**代码 + 实测证据**（`docs/project/fps_timeline.png`、`phywear_optimizations.md`）核验。
+- **EPIC 硬件加速来自官方 PR #31/#41/#121（非本队自研）**；本队在其基础上集成优化（见下方"工作基础与归属"）。
+- **真机（黄山派 SF32LB52）**：官方 EPIC GPU 硬件加速 + 本队 UI/算法层优化 → 全场景平均 **43 FPS**（flush 0ms）；未优化前约 3 FPS。
+- **模拟器（goldfish-arm64-v8a，无 EPIC 硬件、纯软件渲染）**：经本队 **UI/算法层优化**（弃用 lv_chart、自研 pw_scope/pw_graph 的 CPU 光栅 + lv_image 路径）后由"原本非常卡"提升到 **22–23 FPS** 稳定。
+- 即：**43 FPS 需真机硬件 + 官方 EPIC 后端**；评委无板时以**代码 + 实测证据**（`docs/project/fps_timeline.png`、`phywear_optimizations.md`）核验。
 - EPIC 使能配置：`sf32lb52_lchspi_ulp/configs/nsh/defconfig`（`CONFIG_BSP_USING_EPIC=y` + `CONFIG_LV_USE_SIFLI_EPIC=y`）。
 
 **未实现（规划中，如实标注，不冒充）**：
@@ -38,6 +39,26 @@
 - 传感器原始日志流导出——未实现（仅有实验结论串口打印）。
 
 **已知限制**：模拟器窗口黑屏（qemu GPU 层 vs /dev/fb0，架构限制）、帧缓冲冻结、掌声计缺 /dev/mic0、SFBL 部分场景重启（电源/板级原因，有对照实验）、演示视频未录制。详见 README 第八节。
+
+### 工作基础与归属（重要，如实声明）
+
+> **本作品的 EPIC 硬件加速不是我们自研的。** 我们是在**官方已提供的硬件加速适配**基础上做工作，
+> **绝不将官方成果说成"我们自研并适配"**。
+
+- **官方硬件加速适配（非本队成果）** —— 黄山派 SF32LB52 的 EPIC 硬件加速由以下**官方 PR** 提供，
+  本队**集成使用**：
+  - **vendor_sifli #31** — 底层驱动：NuttX LCD/framebuffer 驱动、双缓冲、EPIC 图形加速 HAL、DMA 拷贝。
+  - **apps_graphics_lvgl #41** — LVGL 渲染后端：注册 SiFli EPIC draw unit（fill/border/image/label/layer offload 到 EPIC）。
+  - **nuttx-apps #121** — 编译构建支持。
+- **本队在此基础上的工作（原创）**：
+  1. **3 个新传感器驱动 + 板级 bringup**：MMC5603 地磁、LTR-303 环境光、模拟麦克风（DMA）——已提
+     **nuttx PR #378**。
+  2. **触控修复**：在 EPIC 显示栈上恢复 FT6146 电容触控。
+  3. **PhyWear 全中文 LVGL 应用**（42 文件，phyphox 式物理实验/工具/页面）。
+  4. **UI/算法层优化**：弃用 lv_chart，自研 `pw_scope`/`pw_graph`（CPU 光栅 + `lv_image`）以走通
+     EPIC 的 **IMAGE 硬件 blit** 路径 —— 正是这层优化把渲染推到 **真机 43 FPS**；同一优化也使
+     **模拟器**（无 EPIC）从"原本非常卡"提升到 **22–23 FPS**。
+  5. **AI 全流程辅助开发**（Claude Code + Codex）。
 
 > ⚠️ 灵感来源：玩法/实验场景源自 **phyphox**（RWTH Aachen，**GPL v3**）；本作以 **C + LVGL 独立重实现**（未复制其代码），源码为 Apache-2.0。详见 `app/phywear/NOTICE.md`。
 
@@ -54,11 +75,15 @@ SF32LB52（新硬件平台适配），再在其上叠加一个**腕上智慧物�
 
 **亮点（均已实现，有真实代码/测量佐证）**
 
-- **新硬件适配（技术主线，最强项）**：SF32LB52 全链路 openvela 适配——黄山派板级 BSP、
-  新驱动（MMC5603 地磁、LTR-303 环境光、LSM6DSL IMU、模拟麦克风）、LVGL/EPIC GPU 深度优化
-  把渲染从 ~3 FPS 提到 **43 FPS**。
-- **产品层**：13 个实验 / 工具 / 生活页面（phyphox 式 UI，含原始传感器、力学 3、工具 4、
-  计时器 3、生活 1）+ 设置 / 关于，全中文界面（i18n 双表 + CJK 字体）。
+- **传感器驱动与板级 bringup（本队原创）**：新增 MMC5603 地磁、LTR-303 环境光、模拟麦克风
+  （DMA）3 个 NuttX 字符设备驱动，并在黄山派 SF32LB52 上完成 bringup 与实测（已提 **nuttx PR #378**）；
+  另在官方 EPIC 显示栈上修复 FT6146 触控。
+- **PhyWear 全中文应用 + UI/算法层优化（本队原创）**：13 个实验 / 工具 / 生活页面（phyphox 式 UI）+
+  设置/关于，全中文界面（i18n 双表 + CJK 字体）；自研 `pw_scope`/`pw_graph`（CPU 光栅 + `lv_image`）
+  走通 EPIC IMAGE 硬件 blit 路径，把真机渲染从 ~3 FPS 提到 **43 FPS**（模拟器无 EPIC，同优化
+  从"很卡"到 22–23 FPS）。
+- **集成官方 EPIC 硬件加速（非本队自研）**：在官方 PR（vendor_sifli #31 / lvgl #41 / nuttx-apps #121）
+  基础上完成黄山派构建集成。
 
 ### 灵感来源与合规说明（如实声明）
 
@@ -80,9 +105,9 @@ SF32LB52（新硬件平台适配），再在其上叠加一个**腕上智慧物�
 **主打方向：③ 新硬件平台适配**（官方重点鼓励）。本作品**不是**① AI 硬件产品创新
 （AI 交互未实现），也**不是**② 手表应用创新（未用快应用框架）。
 
-- **③ 新硬件平台适配（主线，最强项）**：把 openvela 移植到黄山派 SF32LB52 —— 板级 BSP、
-  新驱动（磁力计 / 环境光 / IMU / 麦克风）、LVGL **EPIC GPU 加速**（3 → 43 FPS）。命中该
-  方向评分里「技术难度 30 分」的加分项。
+- **③ 新硬件平台适配（主线）**：在黄山派 SF32LB52 上完成 **3 个新传感器驱动 + 板级 bringup**，
+  并**集成官方 EPIC 硬件加速**（PR #31/#41/#121，非本队自研）+ 本队 UI/算法层优化，实现真机
+  **43 FPS**。命中该方向评分里「技术难度 30 分」的加分项。
 - **应用层**：在其上叠加 **LVGL 原生腕上物理工坊 App**（非快应用框架），13 个实验/工具/生活页，
   全中文界面。
 - **① AI 硬件产品创新：未实现**。报名时预期"AI Agent 主动交互（运动模式识别/主动弹建议/
@@ -100,8 +125,8 @@ SF32LB52（新硬件平台适配），再在其上叠加一个**腕上智慧物�
 contest2026_427_xinpingqihe/
 ├── app/phywear/              # ⭐ PhyWear 应用源码（LVGL，42 文件，含 CJK 字体/i18n）
 ├── src/                      # ⭐ 全量源码快照（含来源清单 src/MANIFEST.md）
-│   ├── nuttx/                #   新传感器驱动（mmc5603/ltr303/lsm6dsl）+ 头文件
-│   ├── vendor/sifli/         #   黄山派 BSP + SF32LB52 芯片层 EPIC + 真机 EPIC defconfig
+│   ├── nuttx/                #   [本队原创] 传感器驱动 mmc5603/ltr303（+ lsm6dsl 上游）+ 头文件
+│   ├── vendor/sifli/         #   黄山派 BSP + [官方PR#31] EPIC 芯片层 + [本队] EPIC defconfig
 │   │                         #   (sf32lb52_lchspi_ulp/configs/nsh/defconfig)
 │   ├── vendor/openvela/      #   goldfish-phywear 模拟器板级配置
 │   ├── lvgl/                 #   LVGL EPIC 硬件加速后端（draw/sifli）
@@ -123,9 +148,8 @@ contest2026_427_xinpingqihe/
 ```
 
 > 说明：PhyWear 应用源码（`app/phywear`）是**本队原创作品**，位于本专属仓，评委 clone 主分支
-> 即可直接审阅。新驱动 / 板级 BSP / EPIC 加速等技术改动分散在公共仓（nuttx / vendor_sifli /
-> lvgl），以「源码快照 + MANIFEST 来源清单」形式纳入本仓，并按其 openvela 仓库的
-> `dev-ai-contest-2026` 分支走官方 PR 提交（见四/五节）。
+> 即可直接审阅。本队的**新传感器驱动**已提 **nuttx PR #378**；`src/` 另含本队为集成而纳入的
+> **官方 EPIC 硬件加速**源码快照（PR #31/#41/#121，**非本队原创**，详见"工作基础与归属"）。
 
 ---
 
@@ -183,7 +207,7 @@ PY
 用于长周期规划，因非官方支持工具无法导入官方日志格式，已在下方如实说明）。
 
 - **需求拆解 / 方案设计**：AI 协助把 phyphox 功能拆成板块 / 实验页清单，并对齐 UI 骨架规范。
-- **编码**：LVGL 页面、传感驱动、FFT/自相关算法、EPIC 加速后端均由 AI 辅助编写并复核。
+- **编码**：LVGL 应用页面、本队传感器驱动、FFT/自相关算法、UI/图表优化（`pw_scope`/`pw_graph`）由 AI 辅助编写并复核。（官方 EPIC 后端非本队编写。）
 - **调试**：FPS 探针、bench 注入、崩溃 triage（SFBL 卡死、触控、帧缓冲冻结定位）均借助 AI。
 - **文档**：README / 报告 / 本说明由 AI 协助整理。
 
@@ -220,34 +244,37 @@ PY
   Raw Sensors 页）截图（`docs/evidence/`）。模拟器窗口为黑是 qemu goldfish 显示架构限制
   （GPU 合成层与 `/dev/fb0` 不互通），**非功能缺陷**——真实 UI 在 `/dev/fb0`，本仓证据即
   读 `/dev/fb0` 所得。
-- **性能证据（分层说明，勿混淆平台）**：
-  - **真机（SF32LB52，EPIC 硬件加速）**：全场景平均 **43 FPS**（flush 0ms），优化前约 3 FPS。
+- **性能证据（分层说明，勿混淆平台与归属）**：
+  - **真机（SF32LB52）**：官方 **EPIC 硬件加速**（PR #31/#41/#121）+ 本队 UI/算法层优化 →
+    全场景平均 **43 FPS**（flush 0ms），未优化前约 3 FPS。
     依据：`docs/project/phywear_optimizations.md` + `docs/project/fps_timeline.png`。
-  - **模拟器（goldfish，无 EPIC 硬件）**：经 UI/算法层优化从"原本非常卡"到 **22–23 FPS** 稳定
+  - **模拟器（goldfish，无 EPIC 硬件）**：经本队 UI/算法层优化从"原本非常卡"到 **22–23 FPS** 稳定
     （弃用 lv_chart、自研 `pw_scope`/`pw_graph` 的 CPU 光栅 + `lv_image` 路径）。
-  - **结论**：43 FPS 需**真机硬件**；模拟器上限约 22–23 FPS。评委无板时以**代码 + 上述实测证据**
-    核验硬件适配与优化，而非在模拟器上复现 43 FPS。
+  - **结论**：43 FPS 需**真机硬件 + 官方 EPIC 后端**；模拟器上限约 22–23 FPS。评委无板时以
+    **代码 + 上述实测证据**核验，而非在模拟器上复现 43 FPS。
 - **EPIC 使能方式**：真机构建配置 `sf32lb52_lchspi_ulp/configs/nsh/defconfig`
   （`CONFIG_BSP_USING_EPIC=y`、`CONFIG_LV_USE_SIFLI_EPIC=y`、`CONFIG_EXAMPLES_PHYWEAR=y`）；
   亦见 `board/sf32lb52_lchspi_ulp-nsh-epic.defconfig`（同内容，便于速览）。
 
 ### 公共仓改动提交状态（重要，影响"评委能否编译"）
 
-- 本仓 `src/` 是驱动/BSP/EPIC 的**源码快照**；真正要让评委 `repo sync` 后**编译通过并含 EPIC**，
-  需把这些改动 **PR 到对应 openvela 公共仓**（官方指引："参赛仓库不足以满足适配需求时，可在公共仓
-  nuttx 仓库提交 PR"）。涉及：
-  - **nuttx**：`mmc5603`/`ltr303` 驱动与头文件（否则 `phywear_sensors.c` 缺头编译失败）
-  - **apps_graphics_lvgl**：`src/draw/sifli/epic/` EPIC 后端
-  - **vendor_sifli**：黄山派 BSP + `sf32lb52_epic.c` 芯片层 + EPIC 真机 defconfig
-- 状态：**进行中**（详见本仓 PR 记录）。在公共仓 PR 合入前，评委 clone 专属仓**编译会遇到缺依赖**——
-  这一点如实说明，不做"已完全可编译"的表述。
+- **本队原创**：**nuttx** 的 `mmc5603`/`ltr303` 驱动与头文件 —— 已提 **nuttx PR #378**
+  （checkpatch ✅ / CLA ✅，待组委会 review）。否则 `phywear_sensors.c` 缺头编译失败。
+- **官方提供（非本队提交，等待官方 review/合入）**：
+  - **vendor_sifli PR #31** —— EPIC LCD/framebuffer 驱动 / HAL / DMA 拷贝。
+  - **apps_graphics_lvgl PR #41** —— LVGL EPIC draw unit 后端。
+  - **nuttx-apps PR #121** —— 编译构建支持。
+  （这三个官方 PR 是黄山派 EPIC 硬件加速的来源，此前长期无人 review；本队是在其基础上做工作。）
+- 状态：本队 nuttx 驱动 PR 已就绪待 review；官方 EPIC PR 合入后，评委 `repo sync` 即可编译并
+  在真机上复现 EPIC 加速。在此之前 clone 专属仓编译会缺依赖——**如实说明，不做"已完全可编译"的表述**。
 
 ---
 
 ## 八、已知限制（如实声明，未实现的部分不冒充）
 
-> 以下均为**真实状态**，如实列出、不夸大。核心功能（传感器驱动、13 个实验/工具/生活页、
-> 自研 FFT/图表、EPIC 加速、全中文界面）均已实现并有真实代码 / 截图 / 测量佐证；
+> 以下均为**真实状态**，如实列出、不夸大。本队核心功能（3 个传感器驱动、13 个实验/工具/生活页、
+> 自研 FFT/图表、全中文界面）均已实现并有真实代码 / 截图 / 测量佐证；**EPIC 硬件加速为官方
+> PR 提供（非本队自研）**，本队负责集成与 UI/算法层优化；
 > 下列为**尚未实现或依赖额外硬件**的部分。
 
 ### 1. AI 主动交互——**未实现，仅预留**

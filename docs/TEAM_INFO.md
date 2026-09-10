@@ -22,7 +22,7 @@
 
 | 成员 | 角色 | 负责模块 |
 |---|---|---|
-| XPQHyue | 队长 / 独立开发者（单人成队） | ① 黄山派 SF32LB52 板级 BSP 适配<br>② 新驱动：MMC5603 地磁、LTR-303 环境光、LSM6DSL IMU、模拟麦克风<br>③ LVGL/EPIC GPU 加速（3 → 43 FPS）<br>④ PhyWear LVGL 应用（13 实验/工具/生活页 + 全中文 i18n/CJK 字体，含设置/关于）<br>⑤ 性能 bench / FPS / 空闲堆统计与调优<br>⑥ 模拟器 + 真机验证<br>⑦ 文档 / AI Coding 日志 / 提交 |
+| XPQHyue | 队长 / 独立开发者（单人成队） | ① 黄山派 SF32LB52 上新传感器驱动与板级 bringup（MMC5603 地磁、LTR-303 环境光、麦克风；**已提 nuttx PR #378**）+ 触控修复<br>② **集成官方 EPIC 硬件加速**（PR #31/#41/#121，**非本队自研**）+ 本队 UI/算法层优化（真机 3 → 43 FPS；模拟器 22–23 FPS）<br>③ PhyWear LVGL 应用（13 实验/工具/生活页 + 全中文 i18n/CJK 字体，含设置/关于）<br>④ 性能 bench / FPS / 空闲堆统计与调优<br>⑤ 模拟器 + 真机验证<br>⑥ 文档 / AI Coding 日志 / 提交 |
 
 ## 选题方向说明
 
