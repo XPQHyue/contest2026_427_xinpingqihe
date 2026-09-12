@@ -333,9 +333,9 @@ static void raw_tick_cb(lv_timer_t *timer)
           {
             lv_label_set_text_fmt(g_raw.pg[pi].val[0], "%d lux",
                                   light.lux);
-            lv_label_set_text_fmt(g_raw.pg[pi].sub[0], "CH0 vis+IR  %d",
+            lv_label_set_text_fmt(g_raw.pg[pi].sub[0], PW_STR(RAW_CH0_VISIR_FMT),
                                   light.ch0);
-            lv_label_set_text_fmt(g_raw.pg[pi].sub[1], "CH1 IR      %d",
+            lv_label_set_text_fmt(g_raw.pg[pi].sub[1], PW_STR(RAW_CH1_IR_FMT),
                                   light.ch1);
           }
         break;

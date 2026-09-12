@@ -303,8 +303,7 @@ static void inc_build_page_angle(void)
   lv_obj_set_pos(g_i.axl_lab, 40, 210);
 
   lab = pw_label_new(pg,
-                     "Hold the watch against a ramp: the angle "
-                     "between the x-axis and the horizon is shown.",
+                     PW_STR(INCLINE_HELP_MAIN),
                      PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 20, 256);
   lv_obj_set_width(lab, 350);
@@ -367,12 +366,7 @@ static void inc_build_page_help(void)
   lv_obj_set_pos(card, 18, 40);
 
   lab = pw_label_new(card,
-        "The watch measures tilt using gravity: the angle is "
-        "between the watch x-axis and the horizon.\n"
-        "Flat on the table = 0 deg; standing on its side = 90 deg.\n"
-        "Use it to check ramp angles: lay the watch on the ramp "
-        "with the top edge pointing downhill.\n"
-        "Accuracy is best when the watch is still (no shaking).",
+        PW_STR(INCLINE_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 14, 10);
   lv_obj_set_width(lab, 326);

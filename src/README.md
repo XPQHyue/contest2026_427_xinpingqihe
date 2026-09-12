@@ -1,8 +1,8 @@
 # src/ — 全量源码快照
 
 本目录集中存放**本队对 openvela 公共仓的技术改动**（新传感器驱动、黄山派 BSP、
-SF32LB52 芯片层 EPIC 加速、LVGL EPIC 加速后端、goldfish-phywear 模拟器配置），
-供评委直接审阅源码、核实工作量。
+SF32LB52 芯片层 EPIC 加速、LVGL EPIC 加速后端、goldfish-phywear 模拟器配置、
+openvelaClaw Agent 的 PhyWear 工具），供评委直接审阅源码、核实工作量。
 
 - **原创应用**（PhyWear LVGL，42 文件）在仓库根 `app/phywear/`，不在此目录。
 - 每个文件的**来源路径 / 所属分支 / 关键 commit** 见 [`MANIFEST.md`](MANIFEST.md)。

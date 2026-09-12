@@ -214,7 +214,7 @@ static void centri_refit(void)
 
   lv_label_set_text_fmt(g_c.r_lab, "%.3f", (double)g_c.r);
   lv_obj_set_style_text_color(g_c.r_lab, C_ACC, 0);
-  lv_label_set_text_fmt(g_c.info_lab, "%d pts", g_c.pn);
+  lv_label_set_text_fmt(g_c.info_lab, PW_STR(CENTRI_PTS_FMT), g_c.pn);
 
   /* 拟合线（两点：原点 → xmax 处 r·x） */
 
@@ -400,8 +400,7 @@ static void centri_build_page_r(void)
   lv_obj_set_pos(lab, 300, 182);
 
   lab = pw_label_new(pg,
-                     "Each point = one spin sample. The slope of "
-                     "a vs w^2 is the radius r.",
+                     PW_STR(CENTRI_HELP_MAIN),
                      PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 20, 240);
   lv_obj_set_width(lab, 350);
@@ -467,13 +466,7 @@ static void centri_build_page_help(void)
   lv_obj_set_pos(card, 18, 40);
 
   lab = pw_label_new(card,
-        "1. Place the watch on a turntable, or strap it on your "
-        "wrist and spin with the arm drawing circles.\n"
-        "2. Keep the spin axis vertical: gravity must stay "
-        "constant so it can be removed (sqrt(|a|^2 - g^2)).\n"
-        "3. Vary the spin speed so points spread along w^2.\n"
-        "4. r = slope of a vs w^2 (least squares through the "
-        "origin). Compare with a ruler measurement.",
+        PW_STR(CENTRI_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 14, 10);
   lv_obj_set_width(lab, 326);

@@ -33,6 +33,8 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     SRCS
     phywear.c
     phywear_i18n.c
+    pw_ai.c
+    pw_shot.c
     phywear_sensors.c
     pw_font_14.c
     pw_font_16.c

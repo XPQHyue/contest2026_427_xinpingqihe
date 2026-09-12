@@ -64,6 +64,25 @@
 |---|---|
 | `boards/vela/configs/goldfish-arm64-v8a-ap-phywear/defconfig` | **goldfish-phywear 模拟器配置**（本队自建，无实物验收用） |
 
+## packages/ai_agent/ — openvelaClaw Agent 的 PhyWear 工具 `branch: dev-ai-contest-2026`
+> **归属**：`packages/ai_agent` 是 **openvela 官方 AI Agent 框架（组委会点名的 openvelaClaw 引擎）**，
+> **非本队原创**。本队在其之上**新增** 4 个 PhyWear 工具并注册；其余为官方原文件快照，
+> 便于评委对照 diff 核实我们的改动范围。
+
+| 文件 | 说明 | 归属 |
+|---|---|---|
+| `src/tools/tool_phywear.c` | 4 个 PhyWear 工具实现（list_experiments / open_screen / read_sensor / run_experiment） | **本队原创（新增）** |
+| `include/tools/tool_phywear.h` | 工具声明 | **本队原创（新增）** |
+| `src/tools/tool_registry.c` | 工具注册表：加入 4 个 PhyWear 工具 | 官方文件 + **本队改动**（+32 行） |
+| `src/core/agent_loop.c` | 关键词直通表加入 PhyWear 意图（无 LLM Key / 断网也可用） | 官方文件 + **本队改动**（+15 行） |
+| `CMakeLists.txt` / `Makefile` | 把新 .c 加进构建列表 | 官方文件 + **本队改动**（各 +1 行） |
+
+- 上游来源：`git@gitee.com:open-vela/packages_ai_agent`，分支 `dev-ai-contest-2026`
+- 本队改动提交：`d3de790`（tag `aiagent-phywear-tools-20260911`），共 6 文件 +626 行
+- 工具调用不直接碰 LVGL：切页请求投递到 `app/phywear/pw_ai.c` 的邮箱，由 GUI 线程执行
+- 模拟器实测：`vela> ask 打开单摆` → 手表界面切到单摆页（关键词直通，无需 LLM Key）
+- ⚠️ 真机端侧 AI **尚未验证**，如实标注
+
 ## lvgl/ — EPIC 硬件加速后端 `branch: official-with-pr41`
 > ⚠️ **归属**：本节 EPIC 后端由**官方 PR #41（apps_graphics_lvgl，作者 yunlonguu 等）提供**，
 > **非本队原创**；本队为集成而纳入，并补一处构建修复（`lv_os_private.h`）。

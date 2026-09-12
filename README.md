@@ -33,12 +33,15 @@
 - EPIC 使能配置：`sf32lb52_lchspi_ulp/configs/nsh/defconfig`（`CONFIG_BSP_USING_EPIC=y` + `CONFIG_LV_USE_SIFLI_EPIC=y`）。
 
 **未实现（规划中，如实标注，不冒充）**：
-- AI Agent 主动交互（运动模式识别 / 主动弹建议 / 语音快捷启动）——**未实现**（无 ai_agent 集成、无 AI 代码，i18n 标"教练规划中"）。
+- 端侧运动识别与主动交互（运动模式识别 / 主动弹建议 / 语音快捷启动）——**未实现**（i18n 标"教练规划中"）。
+  另：**openvelaClaw（官方 `packages/ai_agent`）已集成**并有本队新增的 4 个 PhyWear 工具
+  （`src/packages/ai_agent/`，模拟器实测；真机端侧 AI 尚未验证）。
 - 弹性碰撞能量损耗、历史频率追踪、音频发生器（PWM 喇叭）、多普勒效应——**未实现**（声学需喇叭硬件）。
 - 自定义实验构建器——未实现（标"构建器规划中"）。
 - 传感器原始日志流导出——未实现（仅有实验结论串口打印）。
 
-**已知限制**：模拟器窗口黑屏（qemu GPU 层 vs /dev/fb0，架构限制）、帧缓冲冻结、掌声计缺 /dev/mic0、SFBL 部分场景重启（电源/板级原因，有对照实验）、演示视频未录制。详见 README 第八节。
+**已知限制**：模拟器窗口黑屏（qemu GPU 层 vs /dev/fb0，架构限制）、帧缓冲冻结、掌声计缺 /dev/mic0、~~SFBL 部分场景重启（电源/板级原因）~~（**已更正**：真因是 flash 起始缺 ftab，已修复，
+见 `docs/ftab修复说明_20260912.md`）、演示视频未录制（脚本已按真机重写）。详见 README 第八节。
 
 ### 工作基础与归属（重要，如实声明）
 
@@ -127,16 +130,20 @@ SF32LB52（新硬件平台适配），再在其上叠加一个**腕上智慧物�
 ## 二、选题方向
 
 **主打方向：③ 新硬件平台适配**（官方重点鼓励）。本作品**不是**① AI 硬件产品创新
-（AI 交互未实现），也**不是**② 手表应用创新（未用快应用框架）。
+（端侧主动交互未实现），也**不是**② 手表应用创新（未用快应用框架）。
+> ⚠️ 组委会 2026-09-11 口头反馈「黄山派是已有开发板，不算 ③」；赛道口径**仍待最终确认**，
+> 本文暂按 ③ 表述，口径一经确定会统一更新。
 
 - **③ 新硬件平台适配（主线）**：在黄山派 SF32LB52 上完成 **3 个新传感器驱动 + 板级 bringup**，
   并**集成官方 EPIC 硬件加速**（PR #31/#41/#121，非本队自研）+ 本队 UI/算法层优化，实现真机
   **43 FPS**。命中该方向评分里「技术难度 30 分」的加分项。
 - **应用层**：在其上叠加 **LVGL 原生腕上物理工坊 App**（非快应用框架），13 个实验/工具/生活页，
   全中文界面。
-- **① AI 硬件产品创新：未实现**。报名时预期"AI Agent 主动交互（运动模式识别/主动弹建议/
-  语音快捷启动）"，**当前全部未落地**（无 ai_agent 集成、无 AI 交互代码），属**后续方向**；
-  如实列入"已知限制"，不冒充已实现。
+- **① AI 硬件产品创新：暂未作为主打方向**。报名时预期"AI Agent 主动交互（运动模式识别/
+  主动弹建议/语音快捷启动）"中的**端侧主动识别与主动交互部分仍未实现**；但
+  **openvelaClaw（官方 `packages/ai_agent`）已集成**，本队在其上新增 4 个 PhyWear 工具
+  （`src/packages/ai_agent/`，模拟器实测：`ask 打开单摆` 会真的切页，且支持无 LLM Key 的
+  关键词直通）。**真机端侧 AI 尚未验证**，如实标注。
 - 未采用快应用方向（用 LVGL 原生应用，非快应用框架）。
 
 > 实交作品与报名作品（黄山派 + PhyWear）一致；方向以**实际交付为准**：③ 新硬件平台适配为主。
@@ -154,13 +161,17 @@ contest2026_427_xinpingqihe/
 │   │                         #   (sf32lb52_lchspi_ulp/configs/nsh/defconfig)
 │   ├── vendor/openvela/      #   goldfish-phywear 模拟器板级配置
 │   ├── lvgl/                 #   LVGL EPIC 硬件加速后端（draw/sifli）
+│   ├── packages/ai_agent/    #   openvelaClaw Agent 的 PhyWear 工具（本队新增 4 个）
 │   └── MANIFEST.md           #   逐文件来源/分支/commit 说明（证明工作量）
 ├── board/
 │   ├── sf32lb52_lchspi_ulp-nsh-epic.defconfig  # ⭐ 真机 EPIC 使能配置（速览用）
 │   └── goldfish-phywear.defconfig              # 模拟器 defconfig
 ├── .claude/skills/           # 自建 Skill（phywear-sf32lb52-devloop）—— 见第六节
 ├── docs/
-│   ├── evidence/             # 中文界面核心截图（根屏 + Raw Sensors 页）
+│   ├── evidence/             # 中文界面截图
+│   │   └── realboard-20260912/  # ⭐ 26 张真机截图（16 主页面 + 10 说明/数据页）+ 总览
+│   ├── ftab修复说明_20260912.md  # 真机 SFBL 卡住的真因（缺 ftab）与修复
+│   ├── 真机验证记录_20260912.md   # 真机验证记录（含旧固件更正）
 │   ├── project/              # 项目文档（黄山派 readme / 目标 / 优化 / UI 规范 / FPS 时序）
 │   ├── token_usage/          # Token 用量证据（小米 MiMo 导出 + 说明）
 │   ├── PHYWEAR_SIM_ARCHIVE_NOTES.md  # 模拟器成果归档说明
@@ -213,8 +224,21 @@ export PATH="$PWD/prebuilts/build-tools/linux-x86_64/bin:$PWD/prebuilts/gcc/linu
   -p /dev/ttyUSB0 -b 1000000` 烧录，释放 RTS 后 `picocom -b 1000000 --noreset
   --lower-rts --lower-dtr /dev/ttyUSB0` 进控制台。详见 `docs/project/huangshan_pi_readme.md`。
 
-### 3) 截图（中文界面，读 /dev/fb0）
-模拟器窗口为黑（qemu 只合成 GPU 层），真实 UI 在 `/dev/fb0`：
+### 3) 截图（中文界面）
+
+**真机（2026-09-12 新增，推荐）**：真机没有 `/dev/fb0` 节点、NSH 也没有 dd/cat 工具，因此本队
+新增了 `phywear --shot/--sweep/--p2`：板端直接读 LCD 驱动的整屏双缓冲（390×450×2 B），
+按行加 crc16 后以 base64 从串口输出（链路会随机丢字节，故整帧发两遍 + 帧级哈希），
+宿主机 `tools/phywear/pwshot.py` 一条命令解码成 PNG：
+
+```bash
+python3 ~/openvela/tools/phywear/pwshot.py all      # 16 主页面 + 10 说明/数据页
+```
+
+26 张真机截图证据见 `docs/evidence/realboard-20260912/`（每张值均标注数据来源：
+主页面是**板上实时传感器读数**、说明/数据页是 **bench 注入的合成数据**，都不是受控实验结果）。
+
+**模拟器**：窗口为黑（qemu 只合成 GPU 层），真实 UI 在 `/dev/fb0`：
 ```bash
 adb pull /dev/fb0 /tmp/frame.raw
 python3 - <<'PY'
@@ -329,14 +353,18 @@ PY
 ### 4. 模拟器环境限制（非功能缺陷）
 - 模拟器**窗口为黑**（qemu goldfish 只合成 GPU 层，LVGL 绘制在 `/dev/fb0`）——因此视觉验收
   以"读 `/dev/fb0` 截屏"为准（本仓证据即此产物），窗口黑屏属**显示架构限制**，非代码问题。
-- 帧缓冲冻结：模拟器每启动仅首个 `phywear` 进程能渲染到 `/dev/fb0`，后续显示旧帧——故"全部
-  子页"截图未能逐页稳定获取，当前以根屏 + Raw Sensors 页为核心中文证据。
+- 帧缓冲冻结：模拟器每启动仅首个 `phywear` 进程能渲染到 `/dev/fb0`，后续显示旧帧——故模拟器上
+  "全部子页"截图难以逐页稳定获取。（**该限制已在真机侧绕开**：2026-09-12 的真机截图能力
+  逐个进程截一页，已拿到 16 主页面 + 10 说明/数据页，见 `docs/evidence/realboard-20260912/`。）
 - 自动 demo 卡在"掌声计"：模拟器无 `/dev/mic0`，该页打开即报错退出。
 
 ### 5. 真机联调与视频
 - **演示视频未录制**（需实操录屏，≤5 分钟）。有真机 UART 日志 / sftool 烧录 / `SFBL` 引导记录
   作为硬件联调证据。
-- SFBL 引导在部分场景反复重启：经验证为**电源/板级层面**问题，与代码无关（有对照实验记录）。
+- ~~SFBL 引导在部分场景反复重启：电源/板级层面问题~~ **该判断已更正**：真因是 flash 起始
+  `0x12000000` 缺 **ftab（FlashTable）**，SiFli ROM 拿不到有效 ftab 就只打印 `SFBL` 停在下载模式。
+  修复 = 先写改好 `xip_base` 的 ftab 再写固件，已封装为 `flash_with_ftab.sh`；真机已正常启动并复现
+  43 FPS。详见 `docs/ftab修复说明_20260912.md`。
 
 ---
 

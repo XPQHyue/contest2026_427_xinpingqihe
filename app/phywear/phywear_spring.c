@@ -332,9 +332,9 @@ static void spring_analyze(void)
   lv_label_set_text_fmt(g_sp.f_lab, "%.2f", (double)f);
   lv_obj_set_style_text_color(g_sp.f_lab, S_ACC, 0);
   lv_label_set_text_fmt(g_sp.t_lab, "T = %.3f s", (double)T);
-  lv_label_set_text_fmt(g_sp.amp_lab, "amplitude %.2f (rel)",
+  lv_label_set_text_fmt(g_sp.amp_lab, PW_STR(SPRING_AMP_REL_FMT),
                         (double)amp);
-  lv_label_set_text_fmt(g_sp.ac_lab, "T = %.3f s   (first peak)",
+  lv_label_set_text_fmt(g_sp.ac_lab, PW_STR(FIRST_PEAK_FMT),
                         (double)T);
   spring_update_status(PW_STR(SPRING_STATUS_LIVE), S_ACC);
 }
@@ -564,15 +564,7 @@ static void spring_build_page_help(void)
   lv_obj_set_pos(card, 18, 40);
 
   lab = pw_label_new(card,
-        "1. Fix a rubber band at one end, hang a weight at the "
-        "other, and strap the watch to the weight.\n"
-        "2. Pull the weight down slightly and release it so it "
-        "bounces vertically.\n"
-        "3. f = 1/T is found by autocorrelation of the "
-        "acceleration (gravity removed) - no FFT, same method "
-        "as phyphox.\n"
-        "4. amplitude = stddev / f^2 (relative units, phyphox "
-        "formula).",
+        PW_STR(SPRING_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 14, 10);
   lv_obj_set_width(lab, 326);

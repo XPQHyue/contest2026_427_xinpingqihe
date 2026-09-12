@@ -423,7 +423,13 @@ static void ui_gctl_cb(lv_event_t *e)
 void pw_graph_controls_add(lv_obj_t *card, struct pw_graph_s *g,
                            pw_gctl_status_cb status, void *ud)
 {
-  static const char *labtxt[] = {"X-", "X+", "Y-", "Y+", "Fit", "Auto"};
+  /* 按钮文案走 i18n：X-/X+/Y-/Y+ 为符号，Fit/Auto 需翻译。
+   * 注意不能做成 static 数组（PW_STR 是函数调用，非编译期常量）。 */
+  static const int labid[] =
+  {
+    0, 0, 0, 0, PW_STR_GCTL_FIT, PW_STR_GCTL_AUTO
+  };
+  static const char *const labsym[] = {"X-", "X+", "Y-", "Y+", NULL, NULL};
   int i;
 
   for (i = 0; i < 6; i++)
@@ -446,7 +452,9 @@ void pw_graph_controls_add(lv_obj_t *card, struct pw_graph_s *g,
       btn = pw_card_new(card, 50, 28, PW_COL_CARD_LT);
       lv_obj_set_pos(btn, 12 + i * 55, 212);
       lv_obj_add_event_cb(btn, ui_gctl_cb, LV_EVENT_CLICKED, c);
-      lab = pw_label_new(btn, labtxt[i], PW_FNT_BODY, PW_COL_DIM);
+      lab = pw_label_new(btn,
+                         labsym[i] != NULL ? labsym[i] : pw_str(labid[i]),
+                         PW_FNT_BODY, PW_COL_DIM);
       lv_obj_center(lab);
     }
 }

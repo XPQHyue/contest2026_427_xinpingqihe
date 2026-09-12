@@ -359,7 +359,7 @@ static void spec_analyze(void)
     }
   else
     {
-      lv_label_set_text_fmt(g_s.peak_row, "peak %.1f Hz",
+      lv_label_set_text_fmt(g_s.peak_row, PW_STR(SPEC_PEAK_FMT),
                             (double)g_s.fpeak[0]);
     }
 
@@ -922,12 +922,7 @@ static void spec_build_page_help(void)
   else
     {
       lab = pw_label_new(card,
-        "Whistle, hum, or tap near the microphone. The spectrum "
-        "shows the frequency content of the sound.\n"
-        "Dominant frequency is shown in the value card.\n"
-        "Drag the plot to pan, use the buttons below it to zoom.\n"
-        "Mic: 16 kHz, window 1024 samples = 64 ms, resolution "
-        "15.6 Hz, range 0..8 kHz.",
+        PW_STR(SPEC_HELP_MIC),
         PW_FNT_BODY, PW_COL_DIM);
     }
 

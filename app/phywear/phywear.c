@@ -66,6 +66,8 @@
 #include "phywear_time.h"
 #include "phywear_life.h"
 #include "phywear_i18n.h"
+#include "pw_ai.h"
+#include "pw_shot.h"
 #include "phywear_raw.h"
 
 #include <nuttx/video/fb.h>
@@ -520,6 +522,132 @@ static int phywear_centripetal(int argc, FAR char *argv[])
 }
 
 /****************************************************************************
+ * Private Functions
+ ****************************************************************************/
+
+/* 截图专用：按名字打开指定屏。root 走 pw_ui_root()（它自己 open），
+ * 其余返回待打开的 screen 对象。返回 1 表示名字有效。
+ * 真机不带 cap 子命令时这段代码不会被执行，保留不影响固件行为。 */
+
+int pw_cap_open(const char *name)
+{
+  lv_obj_t *scr = NULL;
+
+  if      (strcmp(name, "root")      == 0) { pw_ui_root(); return 1; }
+  else if (strcmp(name, "raw")       == 0) scr = pw_raw_screen();
+  else if (strcmp(name, "pendulum")  == 0) scr = pw_pendulum_screen();
+  else if (strcmp(name, "spring")    == 0) scr = pw_spring_screen();
+  else if (strcmp(name, "centri")    == 0) scr = pw_centri_screen();
+  else if (strcmp(name, "incline")   == 0) scr = pw_incline_screen();
+  else if (strcmp(name, "ruler")     == 0) scr = pw_ruler_screen();
+  else if (strcmp(name, "spec_accel")== 0) scr = pw_spec_accel_screen();
+  else if (strcmp(name, "spec_mic")  == 0) scr = pw_spec_mic_screen();
+  else if (strcmp(name, "spec_mag")  == 0) scr = pw_spec_mag_screen();
+  else if (strcmp(name, "stopwatch") == 0) scr = pw_motion_stopwatch_screen();
+  else if (strcmp(name, "lightgate") == 0) scr = pw_light_gate_screen();
+  else if (strcmp(name, "acousticgate") == 0) scr = pw_acoustic_gate_screen();
+  else if (strcmp(name, "applause")  == 0) scr = pw_applause_screen();
+  else if (strcmp(name, "settings")  == 0) scr = pw_settings_screen();
+  else if (strcmp(name, "about")     == 0) scr = pw_about_screen();
+  else return 0;
+
+  if (scr != NULL)
+    {
+      pw_scr_open(scr);
+    }
+
+  return 1;
+}
+
+/* 截图巡检顺序：覆盖全部主屏 / 实验页 / 工具页 / 生活页 / 设置 / 关于
+ * 注意：每页打开后不再返回上级，最后一次统一回根屏即可。 */
+
+static FAR const char *const g_cap_seq[] =
+{
+  "root",
+  "raw",
+  "pendulum",
+  "spring",
+  "centri",
+  "incline",
+  "ruler",
+  "spec_accel",
+  "spec_mic",
+  "spec_mag",
+  "stopwatch",
+  "lightgate",
+  "acousticgate",
+  "applause",
+  "settings",
+  "about",
+};
+
+#define PW_SHOT_MAIN_COUNT \
+  ((int)(sizeof(g_cap_seq) / sizeof(g_cap_seq[0])))
+
+/* 说明 / 数据页巡检（真机截图第二阶段）。
+ *
+ * 这些页不是主屏，而是各实验的第二页（说明页或数据曲线页），需要 bench
+ * 注入合成信号才有内容；因此每页都要先开 bench、再建屏、最后滚到第 2 页。
+ * 打开顺序与 phywear.c 里各 bench 子命令保持一致。
+ *
+ * 铁律 4：这些页里的数值是 bench 注入的合成数据，不是真实测量结果。
+ */
+
+struct pw_shot_p2_s
+{
+  FAR const char *name;
+  void (*bench)(int on, int page_interval_s, int start_page);
+  lv_obj_t *(*screen)(void);
+};
+
+static const struct pw_shot_p2_s g_p2_seq[] =
+{
+  { "20_pend_p2",         pw_pend_bench,     pw_pendulum_screen         },
+  { "21_spring_p2",       pw_spring_bench,   pw_spring_screen           },
+  { "22_centri_p2",       pw_centri_bench,   pw_centri_screen           },
+  { "23_incline_p2",      pw_incline_bench,  pw_incline_screen          },
+  { "24_ruler_p2",        pw_ruler_bench,    pw_ruler_screen            },
+  { "25_spec_p2",         pw_spec_bench,     pw_spec_accel_screen       },
+  { "26_stopwatch_p2",    pw_time_bench,     pw_motion_stopwatch_screen },
+  { "27_lightgate_p2",    pw_time_bench,     pw_light_gate_screen       },
+  { "28_acousticgate_p2", pw_time_bench,     pw_acoustic_gate_screen    },
+  { "29_applause_p2",     pw_applause_bench, pw_applause_screen         },
+};
+
+#define PW_SHOT_P2_COUNT \
+  ((int)(sizeof(g_p2_seq) / sizeof(g_p2_seq[0])))
+
+/* Open shot-plan entry `idx`: 0..MAIN_COUNT-1 are the main pages, the rest are
+ * the bench-injected second pages. */
+
+static void pw_shot_goto(int idx)
+{
+  if (idx < PW_SHOT_MAIN_COUNT)
+    {
+      pw_cap_open(g_cap_seq[idx]);
+    }
+  else
+    {
+      const struct pw_shot_p2_s *entry = &g_p2_seq[idx - PW_SHOT_MAIN_COUNT];
+
+      entry->bench(1, 0, 0);          /* Enable injection before screen build */
+      pw_scr_open(entry->screen());
+      entry->bench(1, 0, 1);          /* Now scroll to the second page */
+    }
+}
+
+static FAR const char *pw_shot_label(int idx)
+{
+  if (idx < PW_SHOT_MAIN_COUNT)
+    {
+      return g_cap_seq[idx];
+    }
+
+  return g_p2_seq[idx - PW_SHOT_MAIN_COUNT].name;
+}
+
+/****************************************************************************
  * Public Functions
  ****************************************************************************/
 
@@ -543,6 +671,22 @@ int main(int argc, FAR char *argv[])
   bool open_raw = false;      /* 调试：直接打开 Raw Sensors 页 */
   bool demo_mode = false;     /* 自动演示：模拟点击验证 / 录屏 */
   const char *cap_screen = NULL;  /* 截图专用：phywear cap <name> 打开指定屏并驻留 */
+  bool shot_once = false;         /* --shot[=ms]: dump one console screenshot */
+  bool shot_sweep = false;        /* --sweep[=ms]: dump the 16 main pages */
+  bool shot_p2 = false;           /* --p2[=ms]: dump the 10 bench pages */
+  int  shot_p2_only = -1;         /* --p2only=<idx>: dump one bench page */
+  int  shot_settle_ms = PW_SHOT_SETTLE_MS;       /* Main page settle time */
+  int  shot_p2_settle_ms = PW_SHOT_P2_SETTLE_MS; /* Bench page settle time */
+  int  shot_first = 0;            /* First shot-plan index to visit */
+  int  shot_last = 0;             /* One past the last shot-plan index */
+  int  shot_idx = 0;              /* Current shot-plan index */
+  struct timespec shot_t0;        /* When the current page was opened */
+#ifdef CONFIG_EXAMPLES_PHYWEAR_SIM_ZH_DEMO
+  bool cap_sweep = false;         /* 截图巡检：phywear capsweep [停留秒] */
+  int  cap_sweep_dwell = 4;       /* 每页停留秒数（宿主机按此间隔抓帧） */
+  int  cap_sweep_idx = 0;
+  time_t cap_sweep_last = 0;
+#endif
 
 #ifdef CONFIG_EXAMPLES_PHYWEAR_SIM_ZH_DEMO
   /* 模拟器截图专用：强制中文界面（所有页面均按中文 UI 渲染）。
@@ -555,6 +699,115 @@ int main(int argc, FAR char *argv[])
       demo_mode = true;
     }
 #endif
+
+  /* Console screenshot flags, accepted anywhere on the command line:
+   *
+   *   --shot[=<ms>]   dump one frame of whatever page this run opens
+   *   --sweep[=<ms>]  dump the 16 main pages
+   *   --p2[=<ms>]     dump the 10 bench-injected second pages
+   *   --all[=<ms>]    both of the above (26 frames, one run)
+   *
+   * They are peeled out of argv here so that the positional parsing below is
+   * unchanged, and they may be combined with any mode, e.g.
+   *   phywear lang zh --all=3000
+   *   phywear lang zh specbench 0 1 --shot=6000
+   *
+   * One process can only run the GUI once per board boot: a second phywear
+   * run after the first exits hangs in the LCD driver, so a full capture
+   * session is always a single run.
+   */
+
+  {
+    int rd;
+    int wr = 1;
+
+    for (rd = 1; rd < argc; rd++)
+      {
+        if (strncmp(argv[rd], "--shot", 6) == 0 &&
+            (argv[rd][6] == '\0' || argv[rd][6] == '='))
+          {
+            shot_once = true;
+            if (argv[rd][6] == '=')
+              {
+                shot_settle_ms = atoi(&argv[rd][7]);
+              }
+
+            continue;
+          }
+
+        if (strncmp(argv[rd], "--sweep", 7) == 0 &&
+            (argv[rd][7] == '\0' || argv[rd][7] == '='))
+          {
+            shot_sweep = true;
+            if (argv[rd][7] == '=')
+              {
+                shot_settle_ms = atoi(&argv[rd][8]);
+              }
+
+            continue;
+          }
+
+        if (strncmp(argv[rd], "--all", 5) == 0 &&
+            (argv[rd][5] == '\0' || argv[rd][5] == '='))
+          {
+            shot_sweep = true;
+            shot_p2 = true;
+            if (argv[rd][5] == '=')
+              {
+                shot_settle_ms = atoi(&argv[rd][6]);
+                shot_p2_settle_ms = shot_settle_ms;
+              }
+
+            continue;
+          }
+
+        if (strncmp(argv[rd], "--p2only=", 9) == 0)
+          {
+            shot_p2 = true;
+            shot_p2_only = atoi(&argv[rd][9]);
+            if (shot_p2_only < 0 || shot_p2_only >= PW_SHOT_P2_COUNT)
+              {
+                shot_p2_only = 0;
+              }
+
+            continue;
+          }
+
+        if (strncmp(argv[rd], "--p2", 4) == 0 &&
+            (argv[rd][4] == '\0' || argv[rd][4] == '='))
+          {
+            shot_p2 = true;
+            if (argv[rd][4] == '=')
+              {
+                shot_p2_settle_ms = atoi(&argv[rd][5]);
+              }
+
+            continue;
+          }
+
+        argv[wr++] = argv[rd];
+      }
+
+    argc = wr;
+  }
+
+  if (shot_settle_ms < 200)
+    {
+      shot_settle_ms = 200;
+    }
+  else if (shot_settle_ms > 60000)
+    {
+      shot_settle_ms = 60000;
+    }
+
+  if (shot_p2_settle_ms < 200)
+    {
+      shot_p2_settle_ms = 200;
+    }
+  else if (shot_p2_settle_ms > 60000)
+    {
+      shot_p2_settle_ms = 60000;
+    }
 
   /* phywear lang en|zh → 预设 GUI 语言（i18n，默认英文），其余参数按正常
    * GUI 处理。供模拟器/无 UI 入口期验收用；设备端语言 UI 入口待接。 */
@@ -579,6 +832,35 @@ int main(int argc, FAR char *argv[])
       cap_screen = argv[2];
       argc = 1;
     }
+
+  /* Real-device screenshot: `phywear shot <name>` opens the page, dumps one
+   * frame to the console and exits.  Same as `phywear cap <name> --shot`;
+   * the host side decoder is tools/pwshot.py. */
+
+  if (argc > 2 && strcmp(argv[1], "shot") == 0)
+    {
+      cap_screen = argv[2];
+      shot_once = true;
+      argc = 1;
+    }
+
+  /* 模拟器截图巡检：phywear capsweep [停留秒] → 依次打开全部页面，
+   * 每页停留 N 秒并把页名打印到控制台（宿主机据此逐帧抓取 /dev/fb0）。
+   * 仅模拟器截图构建（SIM_ZH_DEMO）可用：页表与状态变量都在该配置下定义。 */
+
+#ifdef CONFIG_EXAMPLES_PHYWEAR_SIM_ZH_DEMO
+  if (argc > 1 && strcmp(argv[1], "capsweep") == 0)
+    {
+      cap_sweep = true;
+      if (argc > 2)
+        {
+          cap_sweep_dwell = atoi(argv[2]);
+          if (cap_sweep_dwell < 1)  cap_sweep_dwell = 1;
+          if (cap_sweep_dwell > 60) cap_sweep_dwell = 60;
+        }
+      argc = 1;
+    }
+#endif
 
   /* 自动演示：phywear demo → 自动点击穿过菜单/板块/实验页（验证/录屏用） */
   if (argc > 1 && strcmp(argv[1], "demo") == 0)
@@ -733,29 +1015,9 @@ int main(int argc, FAR char *argv[])
   if (cap_screen)
     {
       /* 截图专用：打开指定屏（无注入、不自动翻页） */
-      lv_obj_t *scr = NULL;
-
-      if      (strcmp(cap_screen, "root")    == 0) pw_ui_root();
-      else if (strcmp(cap_screen, "raw")     == 0) scr = pw_raw_screen();
-      else if (strcmp(cap_screen, "pendulum")== 0) scr = pw_pendulum_screen();
-      else if (strcmp(cap_screen, "spring")  == 0) scr = pw_spring_screen();
-      else if (strcmp(cap_screen, "centri")  == 0) scr = pw_centri_screen();
-      else if (strcmp(cap_screen, "incline") == 0) scr = pw_incline_screen();
-      else if (strcmp(cap_screen, "ruler")   == 0) scr = pw_ruler_screen();
-      else if (strcmp(cap_screen, "spec_accel")== 0) scr = pw_spec_accel_screen();
-      else if (strcmp(cap_screen, "spec_mic")== 0) scr = pw_spec_mic_screen();
-      else if (strcmp(cap_screen, "spec_mag")== 0) scr = pw_spec_mag_screen();
-      else if (strcmp(cap_screen, "stopwatch")== 0) scr = pw_motion_stopwatch_screen();
-      else if (strcmp(cap_screen, "lightgate")== 0) scr = pw_light_gate_screen();
-      else if (strcmp(cap_screen, "acousticgate")== 0) scr = pw_acoustic_gate_screen();
-      else if (strcmp(cap_screen, "applause")== 0) scr = pw_applause_screen();
-      else if (strcmp(cap_screen, "settings")== 0) scr = pw_settings_screen();
-      else if (strcmp(cap_screen, "about")   == 0) scr = pw_about_screen();
-      else printf("WARN(cap): 未知屏 '%s'\n", cap_screen);
-
-      if (scr != NULL)
+      if (!pw_cap_open(cap_screen))
         {
-          pw_scr_open(scr);
+          printf("WARN(cap): 未知屏 '%s'\n", cap_screen);
         }
     }
   else if (open_raw)
@@ -829,6 +1091,30 @@ int main(int argc, FAR char *argv[])
       pw_scr_open(scr);
     }
 
+  /* Shot plan: which pages this run visits, and where it stops. */
+
+  if (!shot_once && (shot_sweep || shot_p2))
+    {
+      shot_first = shot_sweep ? 0 : PW_SHOT_MAIN_COUNT;
+      shot_last = shot_p2 ? PW_SHOT_MAIN_COUNT + PW_SHOT_P2_COUNT
+                          : PW_SHOT_MAIN_COUNT;
+
+      if (shot_p2_only >= 0)
+        {
+          shot_first = PW_SHOT_MAIN_COUNT + shot_p2_only;
+          shot_last = shot_first + 1;
+        }
+      shot_idx = shot_first;
+
+      /* The default startup path already opened the root screen (= shot index
+       * 0), so only a plan that does not start there needs an explicit open. */
+
+      if (shot_first != 0)
+        {
+          pw_shot_goto(shot_first);
+        }
+    }
+
   /* 主循环：驱动 LVGL。pendbench 模式附带每 2s 帧节奏/空闲堆统计。 */
 
   {
@@ -839,6 +1125,16 @@ int main(int argc, FAR char *argv[])
     clock_gettime(CLOCK_MONOTONIC, &tmark);
     clock_gettime(CLOCK_MONOTONIC, &dmark);
 
+    /* 告诉 AI Agent 桥：GUI 主循环开始跑，可以受理"打开某页"请求了 */
+
+    pw_ai_set_gui_running(true);
+    pw_ai_note_screen("root");
+
+    /* Start the settle timer for --shot / --sweep / --p2 from the moment the
+     * first page is on screen. */
+
+    clock_gettime(CLOCK_MONOTONIC, &shot_t0);
+
     while (1)
       {
         struct timespec tn;
@@ -846,6 +1142,87 @@ int main(int argc, FAR char *argv[])
 
         lv_timer_handler();
         loop++;
+
+        /* AI Agent 桥：执行挂起的"打开某页"请求（必须在 GUI 线程内） */
+
+        pw_ai_poll();
+
+        /* Console screenshot: let the page settle, stream one frame to the
+         * host, then either finish (--shot) or advance (--sweep / --p2). */
+
+        if (shot_once || shot_sweep || shot_p2)
+          {
+            struct timespec sh;
+            int settle = (shot_idx >= PW_SHOT_MAIN_COUNT) ? shot_p2_settle_ms
+                                                          : shot_settle_ms;
+
+            clock_gettime(CLOCK_MONOTONIC, &sh);
+            if (((sh.tv_sec - shot_t0.tv_sec) * 1000 +
+                 (sh.tv_nsec - shot_t0.tv_nsec) / 1000000) >= settle)
+              {
+                const char *sname;
+
+                if (shot_once)
+                  {
+                    sname = (cap_screen != NULL) ? cap_screen : "page";
+                  }
+                else
+                  {
+                    sname = pw_shot_label(shot_idx);
+                  }
+
+                pw_shot_dump(sname, PW_SHOT_SRC_AUTO);
+
+                if (shot_once)
+                  {
+                    printf("SHOTMODE DONE %s\n", sname);
+                    fflush(stdout);
+                    break;
+                  }
+
+                shot_idx++;
+                if (shot_idx >= shot_last)
+                  {
+                    printf("SHOTSWEEP DONE %d pages\n", shot_idx - shot_first);
+                    fflush(stdout);
+                    break;
+                  }
+
+                printf("SHOTNEXT %d %s\n", shot_idx, pw_shot_label(shot_idx));
+                fflush(stdout);
+                pw_shot_goto(shot_idx);
+                clock_gettime(CLOCK_MONOTONIC, &shot_t0);
+              }
+          }
+
+#ifdef CONFIG_EXAMPLES_PHYWEAR_SIM_ZH_DEMO
+        /* capsweep：每 cap_sweep_dwell 秒切到下一页，并把页名打印到控制台，
+         * 宿主机据此按固定节奏抓 /dev/fb0，一轮跑完全部页面。 */
+        if (cap_sweep)
+          {
+            struct timespec cs;
+
+            clock_gettime(CLOCK_MONOTONIC, &cs);
+            if (cap_sweep_last == 0 ||
+                (cs.tv_sec - cap_sweep_last) >= cap_sweep_dwell)
+              {
+                if (cap_sweep_idx >=
+                    (int)(sizeof(g_cap_seq) / sizeof(g_cap_seq[0])))
+                  {
+                    printf("CAPSWEEP DONE (%d pages)\n", cap_sweep_idx);
+                    fflush(stdout);
+                    break;
+                  }
+
+                printf("CAPSWEEP %d %s\n", cap_sweep_idx,
+                       g_cap_seq[cap_sweep_idx]);
+                fflush(stdout);
+                pw_cap_open(g_cap_seq[cap_sweep_idx]);
+                cap_sweep_idx++;
+                cap_sweep_last = cs.tv_sec;
+              }
+          }
+#endif
 
         /* demo：按时间逐步自导航（每 ~2.3s 推进一步），播完自动退出 */
         if (demo_mode)
@@ -879,6 +1256,8 @@ int main(int argc, FAR char *argv[])
 
         usleep(10 * 1000);   /* ~100Hz 轮询，界面动画/触摸流畅 */
       }
+
+    pw_ai_set_gui_running(false);
   }
   return EXIT_SUCCESS;
 }

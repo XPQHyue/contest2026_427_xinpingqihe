@@ -79,7 +79,11 @@ CONFIG_EXAMPLES_FTPD=y
 CONFIG_EXAMPLES_HELLO=y
 CONFIG_EXAMPLES_LVGLDEMO=y
 CONFIG_EXAMPLES_PIPE=y
-CONFIG_FDCHECK=y
+# --- 模拟器截图/演示构建：关闭 fdcheck 调试断言 ---
+# PhyWear 在模拟器里 lv_indev 读触摸设备时会触发 fdcheck_restore 断言崩溃
+# （NuttX fdcheck 对跨任务 fd 使用的严格校验；官方 goldfish 配置也开着）。
+# 截图/演示构建关掉它，避免演示到一半崩溃；真机配置不受影响。
+# CONFIG_FDCHECK is not set
 CONFIG_FDSAN=y
 CONFIG_FEATURE_FRAMEWORK=y
 CONFIG_FRAME_POINTER=y
@@ -361,3 +365,22 @@ CONFIG_SENSORS_MMC5603=y
 CONFIG_SENSORS_LTR303=y
 # LVGL color depth must match goldfish fb (32bpp XRGB8888) to avoid render/crash
 CONFIG_LV_COLOR_DEPTH_32=y
+
+# --- openvela AI Agent (openvelaClaw) for PhyWear AI ---
+# 官方 AI Agent 引擎；goldfish 官方参考配置见
+# packages/ai_agent/defconfigs/goldfish-arm64-v8a-ap/
+CONFIG_EXAMPLES_AI_AGENT_VELA=y
+CONFIG_EXAMPLES_AI_AGENT_VELA_DATA_DIR="/data/ai_agent"
+# 最小内存配置（省 ~260KB）：关掉不用的外部通道
+# CONFIG_AI_AGENT_FEISHU is not set
+# CONFIG_AI_AGENT_WEIXIN is not set
+# CONFIG_AI_AGENT_MQTT is not set
+# CONFIG_AI_AGENT_NODE is not set
+# CONFIG_AI_AGENT_MCP is not set
+# CONFIG_AI_AGENT_LVGL_UI is not set
+# QuickApp <-> ai_agent 桥接（system.velaclaw），官方 goldfish 配置里有
+CONFIG_FEATURE_SYSTEM_VELACLAW=y
+# --- 与官方 ai_agent goldfish 参考配置对齐（仅这 3 项差异）---
+CONFIG_SYSLOG_CONSOLE=y
+CONFIG_MQ_MAXMSGSIZE=4096
+CONFIG_ADBD_SHELL_SERVICE=y

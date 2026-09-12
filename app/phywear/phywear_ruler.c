@@ -220,7 +220,7 @@ static void ruler_recount(void)
     }
 
   lv_label_set_text_fmt(g_r.cnt_lab, "%u", count);
-  lv_label_set_text_fmt(g_r.cnt2_lab, "%u peaks", count);
+  lv_label_set_text_fmt(g_r.cnt2_lab, PW_STR(RULER_PEAKS_FMT), count);
 
   if (g_r.idx == 1 && g_r.n > 1)
     {
@@ -449,14 +449,7 @@ static void ruler_build_page_help(void)
   lv_obj_set_pos(card, 18, 40);
 
   lab = pw_label_new(card,
-        "1. Lay a row of magnets on the table, or move one "
-        "magnet past the watch repeatedly.\n"
-        "2. Each time the field strength |B| rises above the "
-        "threshold and falls back, one magnet is counted.\n"
-        "3. Raise the threshold if it counts too often, lower "
-        "it if it misses magnets. Reset clears the count.\n"
-        "Earth field here is about 600 mG; a nearby magnet "
-        "pushes |B| above 1000 mG.",
+        PW_STR(RULER_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 14, 10);
   lv_obj_set_width(lab, 326);

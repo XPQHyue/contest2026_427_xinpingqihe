@@ -555,34 +555,19 @@ static void time_build_page_help(void)
   if (g_t.kind == TIME_KIND_MOTION)
     {
       lab = pw_label_new(card,
-        "Knock on the table twice: the first knock starts the "
-        "timer, the second stops it. dt = time between the "
-        "two knocks.\n"
-        "Trigger: acceleration impulse above 0.5 g (|a| minus "
-        "gravity); re-arms below 0.2 g.\n"
-        "Compare with a stopwatch: knock-knock should match "
-        "your manual timing.",
+        PW_STR(STOPWATCH_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
     }
   else if (g_t.kind == TIME_KIND_LIGHT)
     {
       lab = pw_label_new(card,
-        "Break the light beam twice: first break starts the "
-        "timer, second break stops it. dt = time between the "
-        "two breaks.\n"
-        "Trigger: lux drops below the threshold (falling "
-        "edge); re-arms when light returns.\n"
-        "Adjust the threshold to match the ambient light.",
+        PW_STR(LIGHTGATE_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
     }
   else
     {
       lab = pw_label_new(card,
-        "Clap twice: first clap starts the timer, second clap "
-        "stops it. dt = time between the two claps.\n"
-        "Trigger: mic loudness above the dB threshold (rising "
-        "edge); re-arms below it.\n"
-        "Adjust the threshold to the background noise level.",
+        PW_STR(ACOUSTIC_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
     }
 

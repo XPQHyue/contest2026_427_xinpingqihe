@@ -484,7 +484,7 @@ static void pend_analyze(void)
   lv_obj_set_style_text_color(g_p.l_lab, G_ACC, 0);
   lv_label_set_text_fmt(g_p.tf_lab, "T = %.3f s   f = %.2f Hz",
                         (double)T, (double)(1.0f / T));
-  lv_label_set_text_fmt(g_p.ac_lab, "T = %.3f s   (first peak)",
+  lv_label_set_text_fmt(g_p.ac_lab, PW_STR(FIRST_PEAK_FMT),
                         (double)T);
   pend_update_status(PW_STR(PEND_STATUS_LIVE), G_ACC);
 
@@ -897,9 +897,7 @@ static void pend_build_page_res(void)
   lv_obj_set_pos(lab, 12, 248);
 
   lab = pw_label_new(pg,
-                     "Each dot = one steady swing. A resonance peak "
-                     "appears when you drive the pendulum at changing "
-                     "frequencies.",
+                     PW_STR(PEND_HELP_MAIN),
                      PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 20, 314);
   lv_obj_set_width(lab, 350);

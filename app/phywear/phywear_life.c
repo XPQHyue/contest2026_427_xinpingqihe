@@ -210,7 +210,7 @@ static void life_on_block(void)
   if (pw_thresh_update(&g_l.th, db))
     {
       g_l.count++;
-      lv_label_set_text_fmt(g_l.cnt_lab, "%u claps", g_l.count);
+      lv_label_set_text_fmt(g_l.cnt_lab, PW_STR(APPLAUSE_CLAPS_FMT), g_l.count);
       life_update_status(PW_STR(LIFE_STATUS_CLAP), L_ACC);
     }
 
@@ -405,12 +405,7 @@ static void life_build_page_help(void)
   lv_obj_set_pos(card, 18, 40);
 
   lab = pw_label_new(card,
-        "Clap in front of the watch: every loud event above "
-        "-30 dB is counted (re-arms below -45 dB).\n"
-        "The meter shows live loudness in dBFS.\n"
-        "Use it to compare applause loudness, or count claps "
-        "during a performance.\n"
-        "Reset clears the counter.",
+        PW_STR(APPLAUSE_HELP_PAGE),
         PW_FNT_BODY, PW_COL_DIM);
   lv_obj_set_pos(lab, 14, 10);
   lv_obj_set_width(lab, 326);
