@@ -433,7 +433,19 @@
       "file_path": "logs/XPQHyue/2026-09-07/codex__rollout-2026-09-07T13-29-55-01a07a58-30cd-7e62-b325-5fb1c49a5a36.jsonl",
       "collection_mode": "cli",
       "health": "ok"
+    },
+    {
+      "session_id": "981958fd-0287-4b36-aa60-16f63ade9289",
+      "tool": "claude-code",
+      "started_at": "2026-09-13T10:16:25.658Z",
+      "last_event_at": "2026-09-13T10:17:49.455Z",
+      "event_count": 34,
+      "raw_event_count": 55,
+      "file_path": "logs/XPQHyue/2026-09-13/claude-code__981958fd-0287-4b36-aa60-16f63ade9289.jsonl",
+      "collection_mode": "cli",
+      "health": "ok",
+      "model": "mimo-v2.5-pro"
     }
   ],
-  "updated_at": "2026-09-08T14:53:19.365545Z"
+  "updated_at": "2026-09-13T10:21:48.873213+00:00"
 }
