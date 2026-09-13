@@ -555,6 +555,7 @@ int pw_cap_open(const char *name)
   else if (strcmp(name, "mic")       == 0) { scr = pw_raw_screen(); pw_raw_goto(4); }
   else if (strcmp(name, "spk")       == 0) { scr = pw_raw_screen(); pw_raw_goto(5); }
   else if (strcmp(name, "about")     == 0) scr = pw_about_screen();
+  else if (strcmp(name, "ai")        == 0) scr = pw_ai_coach_screen();
   else return 0;
 
   if (scr != NULL)
@@ -964,6 +965,65 @@ int main(int argc, FAR char *argv[])
       int rc = pw_tone_set_pa(on);
 
       printf("spkpa: %s -> %d\n", on ? "on" : "off", on);
+      return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  /* 子命令：phywear coach <自然语言请求…> → 与 AI 教练页按钮完全相同的路径
+   * （向端侧 Agent 发请求；回复异步落在 pw_ai 消息日志里，页面/日志可见）。
+   * 无头环境（串口 / 模拟器脚本）用它验证整条链路；发完等待回复打印出来。 */
+
+  if (argc > 2 && strcmp(argv[1], "coach") == 0)
+    {
+      char text[192];
+      char seen[4][192];
+      int n = 0;
+      int i;
+      int rc;
+      int waited;
+
+      text[0] = '\0';
+      for (i = 2; i < argc && n < (int)sizeof(text) - 2; i++)
+        {
+          n += snprintf(text + n, sizeof(text) - n, "%s%s",
+                        i > 2 ? " " : "", argv[i]);
+        }
+
+      memset(seen, 0, sizeof(seen));
+      for (i = 0; i < pw_ai_log_count() && i < 4; i++)
+        {
+          const char *old = pw_ai_log_line(i);
+
+          if (old != NULL)
+            {
+              strncpy(seen[i], old, sizeof(seen[i]) - 1);
+            }
+        }
+
+      rc = pw_ai_ask(text);
+      printf("coach: \"%s\" -> rc=%d (%s)\n", text, rc,
+             rc == 0 ? "sent to agent" : "agent unavailable");
+
+      if (rc == 0)
+        {
+          for (waited = 0; waited < 200; waited++)   /* 最多等 20 s */
+            {
+              const char *line = pw_ai_log_line(0);
+
+              if (line != NULL && strncmp(line, seen[0], sizeof(seen[0]) - 1) != 0)
+                {
+                  printf("coach reply: %s\n", line);
+                  break;
+                }
+
+              usleep(100000);
+            }
+
+          if (waited >= 200)
+            {
+              printf("coach: no reply within 20 s\n");
+            }
+        }
+
       return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
     }
 

@@ -50,6 +50,7 @@
 #include "phywear_ruler.h"
 #include "phywear_time.h"
 #include "phywear_life.h"
+#include "pw_ai.h"
 
 /****************************************************************************
  * Private Definitions
@@ -615,14 +616,166 @@ static lv_obj_t *ui_custom_open(void)
                        items, sizeof(items) / sizeof(items[0]));
 }
 
+/****************************************************************************
+ * AI 教练页
+ *
+ * 让手表 UI 上"看得见 AI"：按下按钮 = 向端侧 Agent 发一条自然语言请求
+ * （命中 agent_loop 的离线意图表；有 LLM 时走 LLM）→ Agent 调工具（切页 /
+ * 读数 / 跑实验）→ 回复文本回落到 pw_ai 的消息日志 → 本页周期刷新显示。
+ *
+ * 线程安全：所有 LVGL 操作都在 GUI 线程内；Agent 回复只写 pw_ai 的环形日志。
+ ****************************************************************************/
+
+#define AI_CARD_H    176
+#define AI_BTN_W     ((PW_SCREEN_W - 2 * MENU_X0 - 8) / 2)
+#define AI_BTN_H     54
+#define AI_BTN_GAP   8
+
+static lv_obj_t *g_ai_status;
+static lv_obj_t *g_ai_latest;
+static lv_obj_t *g_ai_more[2];
+
+/* 4 个快捷请求：文案同时作为发给 Agent 的请求文本（中英文都能命中离线意图） */
+
+static const int g_ai_btn_ids[] =
+{
+  PW_STR_AICOACH_BTN_LIST,
+  PW_STR_AICOACH_BTN_PENDULUM,
+  PW_STR_AICOACH_BTN_ACCEL,
+  PW_STR_AICOACH_BTN_RUN,
+};
+
+static void ai_tick(lv_timer_t *t);
+static void ai_btn_cb(lv_event_t *e);
+
+static void ai_refresh(void)
+{
+  const char *line;
+  int i;
+
+  if (g_ai_status == NULL)
+    {
+      return;
+    }
+
+  lv_label_set_text(g_ai_status, pw_ai_agent_ready()
+                    ? PW_STR(AICOACH_ONLINE) : PW_STR(AICOACH_OFFLINE));
+  lv_obj_set_style_text_color(g_ai_status,
+                              pw_ai_agent_ready() ? PW_ACC_AI : PW_COL_DIM, 0);
+
+  line = pw_ai_log_line(0);
+  lv_label_set_text(g_ai_latest, line != NULL ? line : PW_STR(AICOACH_EMPTY));
+
+  for (i = 0; i < 2; i++)
+    {
+      line = pw_ai_log_line(i + 1);
+      lv_label_set_text(g_ai_more[i], line != NULL ? line : "");
+    }
+}
+
+static void ai_tick(lv_timer_t *t)
+{
+  ai_refresh();
+}
+
+static void ai_btn_cb(lv_event_t *e)
+{
+  int id = (int)(intptr_t)lv_event_get_user_data(e);
+  const char *req = pw_str(id);
+  char line[160];
+
+  if (req == NULL)
+    {
+      return;
+    }
+
+  snprintf(line, sizeof(line), "> %s", req);
+  pw_ai_note(line);                 /* 立刻给用户反馈，不必等 Agent */
+  pw_ai_ask(req);
+  ai_refresh();
+}
+
+static lv_obj_t *ai_button(lv_obj_t *parent, int x, int y, int str_id)
+{
+  lv_obj_t *btn = pw_card_new(parent, AI_BTN_W, AI_BTN_H, PW_COL_CARD);
+  lv_obj_t *lab;
+
+  lv_obj_set_pos(btn, x, y);
+  lv_obj_add_event_cb(btn, ai_btn_cb, LV_EVENT_CLICKED,
+                      (void *)(intptr_t)str_id);
+  lab = pw_label_new(btn, pw_str(str_id), PW_FNT_SMALL, PW_ACC_AI);
+  lv_obj_center(lab);
+  return btn;
+}
+
 static lv_obj_t *ui_ai_open(void)
 {
-  const struct pw_exp_s items[] =
-  {
-    { PW_STR(UI_AI_COACH), PW_STR(EXP_COACH_DESC), NULL },
-  };
-  return pw_board_list(PW_STR(UI_AI_COACH), PW_ACC_AI,
-                       items, sizeof(items) / sizeof(items[0]));
+  lv_obj_t *scr;
+  lv_obj_t *cont;
+  lv_obj_t *card;
+  lv_obj_t *lab;
+  int i;
+
+  scr = pw_scr_new();
+  cont = pw_topbar(scr, PW_STR(UI_AI_COACH));
+
+  /* 状态 + 最近回复 */
+
+  card = pw_card_new(cont, PW_SCREEN_W - 2 * MENU_X0, AI_CARD_H, PW_COL_CARD);
+  lv_obj_set_pos(card, MENU_X0, MENU_GAP);
+
+  lab = pw_label_new(card, PW_STR(AICOACH_STATUS), PW_FNT_SMALL, PW_COL_DIM);
+  lv_obj_set_pos(lab, 14, 10);
+
+  g_ai_status = pw_label_new(card, PW_STR(AICOACH_OFFLINE), PW_FNT_SMALL,
+                             PW_COL_DIM);
+  lv_obj_set_pos(g_ai_status, 120, 10);
+
+  lab = pw_label_new(card, PW_STR(AICOACH_LATEST), PW_FNT_BODY, PW_COL_DIM);
+  lv_obj_set_pos(lab, 14, 38);
+
+  g_ai_latest = pw_label_new(card, PW_STR(AICOACH_EMPTY), PW_FNT_SMALL,
+                             PW_ACC_ACTIVE);
+  lv_obj_set_pos(g_ai_latest, 14, 62);
+  lv_obj_set_width(g_ai_latest, PW_SCREEN_W - 2 * MENU_X0 - 28);
+  lv_label_set_long_mode(g_ai_latest, LV_LABEL_LONG_WRAP);
+
+  for (i = 0; i < 2; i++)
+    {
+      g_ai_more[i] = pw_label_new(card, "", PW_FNT_BODY, PW_COL_DIM);
+      lv_obj_set_pos(g_ai_more[i], 14, 108 + i * 24);
+      lv_obj_set_width(g_ai_more[i], PW_SCREEN_W - 2 * MENU_X0 - 28);
+      lv_label_set_long_mode(g_ai_more[i], LV_LABEL_LONG_DOT);
+    }
+
+  /* 4 个快捷请求 */
+
+  for (i = 0; i < 4; i++)
+    {
+      int col = i % 2;
+      int row = i / 2;
+      ai_button(cont, MENU_X0 + col * (AI_BTN_W + AI_BTN_GAP),
+                MENU_GAP + AI_CARD_H + MENU_GAP + row * (AI_BTN_H + AI_BTN_GAP),
+                g_ai_btn_ids[i]);
+    }
+
+  /* 如实说明 */
+
+  lab = pw_label_new(cont, PW_STR(AICOACH_HINT), PW_FNT_BODY, PW_COL_DIM);
+  lv_obj_set_pos(lab, MENU_X0, MENU_GAP + AI_CARD_H + MENU_GAP + 2 * AI_BTN_H +
+                 AI_BTN_GAP + MENU_GAP);
+  lv_obj_set_width(lab, PW_SCREEN_W - 2 * MENU_X0);
+  lv_label_set_long_mode(lab, LV_LABEL_LONG_WRAP);
+
+  ai_refresh();
+  pw_scr_set_tick(scr, ai_tick, 700);     /* 周期刷新 Agent 回复 */
+
+  return scr;
+}
+
+lv_obj_t *pw_ai_coach_screen(void)
+{
+  return ui_ai_open();
 }
 
 /****************************************************************************
@@ -766,7 +919,7 @@ void pw_ui_root(void)
     { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0x4dd0e1, true,  ui_time_open },
     { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0xff8a65, true,  ui_every_open },
     { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0x90a4ae, false, ui_custom_open },
-    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, false, ui_ai_open },
+    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open },
   };
   const int nboards = sizeof(boards) / sizeof(boards[0]);
   lv_obj_t *scr;
