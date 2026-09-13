@@ -53,6 +53,14 @@
 
 #include "pw_shot.h"
 
+/* The capture path reads the PSRAM double buffer of the SiFli LCD driver, which
+ * only exists on the SF32LB52 (Huangshan Pi) board.  Other targets -- notably
+ * the goldfish simulator used for the AI Agent demos -- compile a stub so the
+ * application still links.
+ */
+
+#ifdef CONFIG_ARCH_CHIP_SF32LB52
+
 /****************************************************************************
  * Pre-processor Definitions
  ****************************************************************************/
@@ -440,3 +448,14 @@ int pw_shot_dump(const char *name, int src)
 
   return 0;
 }
+
+#else /* !CONFIG_ARCH_CHIP_SF32LB52 */
+
+int pw_shot_dump(const char *name, int src)
+{
+  (void)name;
+  (void)src;
+  return -ENOSYS;
+}
+
+#endif /* CONFIG_ARCH_CHIP_SF32LB52 */

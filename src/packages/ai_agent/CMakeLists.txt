@@ -17,6 +17,7 @@ if(CONFIG_EXAMPLES_AI_AGENT_VELA)
   set(AGENT_SRCS
     src/agent_main.c
     src/core/message_bus.c
+    src/sdk/velaclaw_client_local.c
     src/core/message_bus_tap.c
     src/core/agent_loop.c
     src/core/agent_trace.c

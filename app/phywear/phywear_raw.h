@@ -29,4 +29,8 @@
 
 lv_obj_t *pw_raw_screen(void);
 
+/* 跳到指定子页（0..5）：截图与 AI 切页用 */
+
+void pw_raw_goto(int idx);
+
 #endif /* __APPS_EXAMPLES_PHYWEAR_RAW_H */

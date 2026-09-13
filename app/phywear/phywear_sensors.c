@@ -28,6 +28,8 @@
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
+#include <time.h>
 #include <unistd.h>
 #include <pthread.h>
 
@@ -123,9 +125,38 @@ int pw_sensors_read_imu(FAR struct pw_imu_s *out)
 {
   struct lsm6dsl_sensor_data_s d;
 
-  if (out == NULL || g_imu_fd < 0)
+  if (out == NULL)
     {
       return -1;
+    }
+
+  if (g_imu_fd < 0)
+    {
+#ifdef CONFIG_EXAMPLES_PHYWEAR_SIM
+      /* 模拟器没有传感器驱动（defconfig 里写明 no sensor drivers in
+       * emulator）。这里合成一段 0.8 Hz 的"摆动"波形，让摆动检测、
+       * AI Agent 主动场景和图表页在模拟器上也能跑通：
+       * 合模长在约 0.7 g ~ 1.3 g 之间起伏，静止台面上则几乎不变。
+       * ⚠️ 合成数据不能当作测量结果引用。 */
+
+      struct timespec ts;
+      double t;
+      double s;
+
+      clock_gettime(CLOCK_MONOTONIC, &ts);
+      t = (double)ts.tv_sec + (double)ts.tv_nsec / 1e9;
+      s = sin(2.0 * M_PI * 0.8 * t);
+
+      out->ax = (int)(600.0 * s);
+      out->ay = (int)(120.0 * s);
+      out->az = (int)(1000.0 + 300.0 * s);
+      out->gx = (int)(20000.0 * s);
+      out->gy = 0;
+      out->gz = 0;
+      return 0;
+#else
+      return -1;
+#endif
     }
 
   if (ioctl(g_imu_fd, SNIOC_LSM6DSLSENSORREAD, (unsigned long)&d) < 0)

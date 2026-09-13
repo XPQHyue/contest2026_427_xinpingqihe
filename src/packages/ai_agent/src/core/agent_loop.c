@@ -353,6 +353,12 @@ static const char* kw_pw_accel[]    = { "读加速度", "加速度多少", "read
 static const char* kw_pw_home[]     = { "回到主屏", "回到首页", "回主菜单", "phywear home", NULL };
 static const char* kw_pw_run[]      = { "跑单摆实验", "运行单摆", "run pendulum experiment", NULL };
 
+/* Proactive PhyWear event: the app pushes this text when it detects sustained
+ * swinging, so the agent measures g without the user asking.  Must stay before
+ * kw_pw_run (first match wins). */
+
+static const char* kw_pw_watch[]    = { "PhyWear 巡检", "检测到持续摆动", "swing detected", NULL };
+
 static const nl_intent_t s_intents[] = {
     { kw_time,      "get_current_time", "{}",  256  },
     { kw_battery,   "get_battery",      "{}",  512  },
@@ -361,6 +367,7 @@ static const nl_intent_t s_intents[] = {
     { kw_pause,     "music_pause",      "{}",  256  },
     { kw_stop,      "music_stop",       "{}",  256  },
     { kw_resume,    "music_resume",     "{}",  256  },
+    { kw_pw_watch,    "phywear_run_experiment", "{\"screen\":\"pendulum\",\"seconds\":10}", 2048 },
     { kw_pw_run,      "phywear_run_experiment", "{\"screen\":\"pendulum\",\"seconds\":3}", 1024 },
     { kw_pw_pendulum, "phywear_open_screen",   "{\"screen\":\"pendulum\"}", 512 },
     { kw_pw_list,     "phywear_list_experiments", "{}", 3072 },

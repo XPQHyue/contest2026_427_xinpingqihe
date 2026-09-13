@@ -1,0 +1,19 @@
+#
+# For a description of the syntax of this configuration file,
+# see the file kconfig-language.txt in the NuttX tools repository.
+#
+
+config SF32LB52_MIC
+	bool "SF32LB52 on-board analog MEMS microphone"
+	default n
+	---help---
+		Enable the on-board analog MEMS microphone driver (AUDCODEC ADC path),
+		exposed as a character device (e.g. /dev/mic0).
+
+config SF32LB52_SPK
+	bool "SF32LB52 on-board speaker (AUDCODEC DAC0 + PA)"
+	default n
+	---help---
+		Enable the on-board speaker path: internal AUDCODEC DAC0 fed by a DMA
+		buffer, plus the external amplifier enable pin (AUDIO_PA_CTRL = PA42).
+		Exposed as a character device (e.g. /dev/spk0) with tone/volume ioctls.
