@@ -183,6 +183,8 @@ int pw_sensors_read_imu_oneshot(FAR struct pw_imu_s *out)
 #else
   struct lsm6dsl_sensor_data_s d;
   int fd;
+  int i;
+  bool ok;
 
   if (out == NULL)
     {
@@ -195,17 +197,48 @@ int pw_sensors_read_imu_oneshot(FAR struct pw_imu_s *out)
       return -1;
     }
 
-  /* GUI 可能已经启动过采样；SNIOC_START 是幂等的，重复调用无副作用 */
+  /* 先直接读：GUI 已经在采样时，这一读就是有效样本。
+   * 真机实测（09-14）：立刻 START 再读，第一次常拿到 accel 全 0 的样本
+   * （FIFO 刚重启），所以要有重试，并且优先用"非零 accel"的样本。 */
 
-  ioctl(fd, SNIOC_START, 0);
-
-  if (ioctl(fd, SNIOC_LSM6DSLSENSORREAD, (unsigned long)&d) < 0)
+  ok = false;
+  for (i = 0; i < 3 && !ok; i++)
     {
-      close(fd);
-      return -1;
+      if (ioctl(fd, SNIOC_LSM6DSLSENSORREAD, (unsigned long)&d) == 0 &&
+          (d.x_data != 0 || d.y_data != 0 || d.z_data != 0))
+        {
+          ok = true;
+        }
+      else
+        {
+          usleep(20000);
+        }
+    }
+
+  if (!ok)
+    {
+      /* GUI 没在跑（或 FIFO 未启动）：启动一次再重试 */
+
+      ioctl(fd, SNIOC_START, 0);
+
+      for (i = 0; i < 5 && !ok; i++)
+        {
+          usleep(20000);
+
+          if (ioctl(fd, SNIOC_LSM6DSLSENSORREAD, (unsigned long)&d) == 0 &&
+              (d.x_data != 0 || d.y_data != 0 || d.z_data != 0))
+            {
+              ok = true;
+            }
+        }
     }
 
   close(fd);
+
+  if (!ok)
+    {
+      return -1;
+    }
 
   out->ax = d.x_data;        /* mg */
   out->ay = d.y_data;
