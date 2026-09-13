@@ -113,6 +113,7 @@ struct pw_board_s
   uint32_t    color;
   bool        live;                 /* true=白字可进；false=灰字规划中 */
   lv_obj_t *(*open)(void);
+  const char *icon;                 /* LV_SYMBOL_* 图标（内置 Montserrat 自带字形） */
 };
 
 /* g_boards[] 已改为 pw_ui_root() 内运行时构建（需要 PW_STR()） */
@@ -347,6 +348,12 @@ lv_obj_t *pw_card_new(lv_obj_t *parent, int w, int h, lv_color_t bg)
 
   lv_obj_set_size(card, w, h);
   lv_obj_set_style_bg_color(card, bg, 0);
+
+  /* 轻微纵向渐变：EPIC 只对 2-stop H/V 渐变硬件加速（圆角/阴影会掉回软件），
+   * 所以"渐变"是这里性价比最高的观感提升手段。 */
+
+  lv_obj_set_style_bg_grad_color(card, lv_color_lighten(bg, 14), 0);
+  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_width(card, 0, 0);
   lv_obj_set_style_radius(card, 14, 0);
   lv_obj_set_style_pad_all(card, 0, 0);
@@ -912,14 +919,14 @@ void pw_ui_root(void)
 {
   const struct pw_board_s boards[] =
   {
-    { PW_STR(UI_RAW_SENSORS), PW_STR(UI_RAW_DESC),    0x4fc3f7, true,  pw_raw_screen },
-    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0x81c784, true,  ui_mech_open },
-    { PW_STR(UI_ACOUSTICS),   PW_STR(UI_ACOU_DESC),   0xffb74d, true,  ui_acou_open },
-    { PW_STR(UI_TOOLS),       PW_STR(UI_TOOLS_DESC),  0xba68c8, true,  ui_tool_open },
-    { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0x4dd0e1, true,  ui_time_open },
-    { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0xff8a65, true,  ui_every_open },
-    { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0x90a4ae, false, ui_custom_open },
-    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open },
+    { PW_STR(UI_RAW_SENSORS), PW_STR(UI_RAW_DESC),    0x4fc3f7, true,  pw_raw_screen,  LV_SYMBOL_GPS },
+    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0x81c784, true,  ui_mech_open,  LV_SYMBOL_REFRESH },
+    { PW_STR(UI_ACOUSTICS),   PW_STR(UI_ACOU_DESC),   0xffb74d, true,  ui_acou_open,  LV_SYMBOL_AUDIO },
+    { PW_STR(UI_TOOLS),       PW_STR(UI_TOOLS_DESC),  0xba68c8, true,  ui_tool_open,  LV_SYMBOL_EDIT },
+    { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0x4dd0e1, true,  ui_time_open,  LV_SYMBOL_BELL },
+    { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0xff8a65, true,  ui_every_open, LV_SYMBOL_HOME },
+    { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0x90a4ae, false, ui_custom_open, LV_SYMBOL_PLUS },
+    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open,    LV_SYMBOL_ENVELOPE },
   };
   const int nboards = sizeof(boards) / sizeof(boards[0]);
   lv_obj_t *scr;
@@ -983,21 +990,28 @@ void pw_ui_root(void)
       lv_obj_add_event_cb(tile, ui_tile_cb, LV_EVENT_CLICKED,
                           (void *)b->open);
 
-      /* 板块色块 */
+      /* 板块图标：淡色圆底 + LV_SYMBOL 字形（内置 Montserrat 已含 symbols，
+       * 不必重生成中文字体子集；字色用板块色，视觉上仍是"一区一色"） */
 
       chip = lv_obj_create(tile);
-      lv_obj_set_size(chip, 26, 26);
-      lv_obj_set_pos(chip, 14, 14);
+      lv_obj_set_size(chip, 30, 30);
+      lv_obj_set_pos(chip, 12, 12);
       lv_obj_set_style_bg_color(chip, lv_color_hex(b->color), 0);
-      lv_obj_set_style_radius(chip, 8, 0);
+      lv_obj_set_style_bg_opa(chip, LV_OPA_20, 0);
+      lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
       lv_obj_set_style_border_width(chip, 0, 0);
+      lv_obj_set_style_pad_all(chip, 0, 0);
       lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+
+      lab = pw_label_new(chip, b->icon, &lv_font_montserrat_20,
+                         b->live ? lv_color_hex(b->color) : PW_COL_FAINT);
+      lv_obj_center(lab);
 
       /* 名称 + 状态 */
 
       name = pw_label_new(tile, b->name, PW_FNT_MED,
                           b->live ? PW_COL_TEXT : PW_COL_FAINT);
-      lv_obj_set_pos(name, 50, 12);
+      lv_obj_set_pos(name, 52, 12);
 
       info = pw_label_new(tile, b->info, PW_FNT_BODY,
                           b->live ? PW_COL_DIM : PW_COL_FAINT);

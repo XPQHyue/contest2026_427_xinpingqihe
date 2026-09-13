@@ -23,6 +23,7 @@
 #include <nuttx/config.h>
 
 #include <string.h>
+#include <syslog.h>
 #include <stdlib.h>
 
 #include <lvgl/lvgl.h>
@@ -44,12 +45,70 @@ struct pw_scope_s
   uint16_t        bg;
   uint16_t        axis;
   bool            has_axes;
+  bool            used;     /* 槽位是否占用（LVGL 对象删除时自动释放） */
 };
 
 #define PW_SCOPE_MAX   6
 
 static struct pw_scope_s g_scope[PW_SCOPE_MAX];
 static int g_nscope;
+
+/* 槽位分配：优先复用已释放的槽。
+ *
+ * 背景（真机隐患，2026-09-14 修复）：原来只有 g_nscope++ 没有释放路径，
+ * 而每次进入带曲线的页面都会 pw_scope_create 一次 —— 同一个 boot 里进出
+ * 6 次之后 create 返回 NULL，曲线静默消失。现在把 scope 绑到 LVGL 对象的
+ * LV_EVENT_DELETE 上：页面被销毁时自动 lv_free 缓冲并归还槽位。 */
+
+static struct pw_scope_s *scope_alloc(void)
+{
+  int i;
+
+  for (i = 0; i < PW_SCOPE_MAX; i++)
+    {
+      if (!g_scope[i].used)
+        {
+          g_scope[i].used = true;
+          if (i + 1 > g_nscope)
+            {
+              g_nscope = i + 1;
+            }
+
+          return &g_scope[i];
+        }
+    }
+
+  return NULL;
+}
+
+static void scope_release(struct pw_scope_s *s)
+{
+  if (s == NULL || !s->used)
+    {
+      return;
+    }
+
+  syslog(LOG_INFO, "[phywear] pw_scope: release slot %d\n", (int)(s - g_scope));
+
+  if (s->buf != NULL)
+    {
+      lv_free(s->buf);
+      s->buf = NULL;
+    }
+
+  s->img = NULL;
+  s->used = false;
+
+  while (g_nscope > 0 && !g_scope[g_nscope - 1].used)
+    {
+      g_nscope--;
+    }
+}
+
+static void pw_scope_del_cb(lv_event_t *e)
+{
+  scope_release((struct pw_scope_s *)lv_event_get_user_data(e));
+}
 
 /****************************************************************************
  * Private Functions
@@ -133,18 +192,24 @@ lv_obj_t *pw_scope_create(lv_obj_t *parent, int w, int h,
   struct pw_scope_s *s;
   uint32_t px;
 
-  if (g_nscope >= PW_SCOPE_MAX)
-    {
-      return NULL;
-    }
-
   if (w <= 0 || h <= 0 || w > 1024 || h > 1024)
     {
       return NULL;
     }
 
-  s = &g_scope[g_nscope++];
+  s = scope_alloc();
+  if (s == NULL)
+    {
+      syslog(LOG_WARNING, "[phywear] pw_scope: out of slots (%d in use)\n",
+             PW_SCOPE_MAX);
+      return NULL;
+    }
+
+  syslog(LOG_INFO, "[phywear] pw_scope: slot %d, %d/%d in use\n",
+         (int)(s - g_scope), g_nscope, PW_SCOPE_MAX);
+
   memset(s, 0, sizeof(*s));
+  s->used = true;
 
   s->w = w;
   s->h = h;
@@ -179,6 +244,10 @@ lv_obj_t *pw_scope_create(lv_obj_t *parent, int w, int h,
   lv_obj_set_style_border_width(s->img, 0, 0);
   lv_obj_set_style_pad_all(s->img, 0, 0);
 
+  /* 页面（父对象）被删除 → 自动释放缓冲与槽位 */
+
+  lv_obj_add_event_cb(s->img, pw_scope_del_cb, LV_EVENT_DELETE, s);
+
   return s->img;
 }
 
@@ -200,7 +269,7 @@ void pw_scope_set_data(lv_obj_t *scope, FAR const float *y, int n)
   s = NULL;
   for (i = 0; i < g_nscope; i++)
     {
-      if (g_scope[i].img == scope)
+      if (g_scope[i].used && g_scope[i].img == scope)
         {
           s = &g_scope[i];
           break;

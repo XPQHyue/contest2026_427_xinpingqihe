@@ -72,12 +72,12 @@ struct pw_graph_s;   /* 前向声明，避免强依赖 pw_graph.h */
 
 /* phyphox 灵感：图表/数据系列命名饱和色（对齐 phyphox RGB.java 调色板）。
  * 只用于小尺寸数据元素（曲线/散点/指示），不做大文字，保证暗底可读。 */
-#define PW_SER_RED      lv_color_hex(0xfe005d)
-#define PW_SER_GREEN    lv_color_hex(0x2bfb4c)
-#define PW_SER_BLUE     lv_color_hex(0x39a2ff)
-#define PW_SER_ORANGE   lv_color_hex(0xff7e22)
-#define PW_SER_MAGENTA  lv_color_hex(0xeb46f4)
-#define PW_SER_YELLOW   lv_color_hex(0xedf668)
+#define PW_SER_RED      lv_color_hex(0xff5c7a)
+#define PW_SER_GREEN    lv_color_hex(0x5ce08a)
+#define PW_SER_BLUE     lv_color_hex(0x5aa9ff)
+#define PW_SER_ORANGE   lv_color_hex(0xffa94d)
+#define PW_SER_MAGENTA  lv_color_hex(0xd07cf5)
+#define PW_SER_YELLOW   lv_color_hex(0xffe066)
 
 /* 活动/测量中 指示强调（小尺寸专用，非大文字） */
 #define PW_ACC_ACTIVE   lv_color_hex(0xff9a3d)
