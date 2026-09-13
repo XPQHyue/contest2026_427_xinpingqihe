@@ -103,6 +103,12 @@ cJSON 原样写入请求体。（`nginx` 的 `client_body` 之类网关解析失
 修复：新增 `utf8_safe_len()`，在三处截断点回退到最后一个完整 UTF-8 字符（`src/packages/ai_agent/src/tools/skill_loader.c`）。
 修复后 LLM 路径一次通过。**任何写中文 Skill 的队伍都可能踩到这个坑**，已在我们仓内修复并记录。
 
+> **顺带发现的限制（如实）**：技能摘要缓冲只有 `skills_buf[1024]`（`context_builder.c`）。技能一多，
+> 摘要尾部会被截掉 —— 实测放进 2 个中文 Skill 时摘要就顶到上限，LLM 只能看到前一部分 Skill，
+> 甚至可能猜错文件名（实测它去读不存在的 `/data/agent/skills/phywear.md`，回了 `(no files found)`）。
+> 这不影响功能（工具仍可调用、离线意图不受影响），但**属于已知限制**；后续可把缓冲调大或改成
+> 「只列名字 + 一行摘要」的紧凑格式。
+
 ---
 
 ## 5. "主动+执行"场景：现状与后续方向

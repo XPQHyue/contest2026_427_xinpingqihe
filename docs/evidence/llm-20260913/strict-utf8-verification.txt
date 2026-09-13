@@ -1,0 +1,36 @@
+严格复验：中文技能摘要顶到 1024 字节缓冲上限时，请求体仍是合法 UTF-8 / JSON
+==========================================================================
+背景：模拟器里只放 1 个中文 Skill 时摘要 1022 B（未超上限），不足以证明修复生效；
+      本次放入 2 个中文 Skill，强制命中 skill_loader 的 1024 字节上限（截断必然发生）。
+
+设备实际请求体：17654 字节
+  ① UTF-8 解码：✅ 通过
+  ② JSON 解析：✅ 通过（tools=40 个）
+  ③ Skills 段长度：2111 字节（含 system prompt 中 Skills 段，已触及截断上限）
+
+对照（修复前，同一条件）：
+  · 抓包发现请求体第 3736 字节为 0xe8（汉字首字节）后直接跟 JSON \n → 非法 UTF-8；
+  · 云端返回 400 {"message":"Invalid JSON in request body"}；
+  · 摘要长度日志显示 1135 B（= snprintf 的“本应写入长度”，实际超过 1024 缓冲）。
+修复后：摘要按 UTF-8 边界截断，日志显示 1022 B（= 缓冲区里真正留下的内容），请求体合法。
+
+同一会话改用真实 MiMo 端点（token-plan-cn.xiaomimimo.com / mimo-v2.5-pro）的实测：
+  [   57.334441] [25] [  INFO] [ap] [trace:6aa6c20700000000] BEGIN chat=console chan=cli
+  [   57.375492] [25] [  INFO] [ap] [trace:6aa6c20700000000] iter=0 tool=(none) latency=36ms llm=ok backend=0
+  [   57.377979] [25] [  INFO] [ap] [trace:6aa6c20700000000] END status=ok iters=1 tools=0 llm_ms=36 elapsed=0s backend=0
+  [Agent]: 让我查一下...
+  vela> [   57.382950] [15] [  INFO] [ap] [agent] [Agent]: 让我查一下...
+  [Agent]: [captured by local proxy]
+  vela> [   57.388267] [15] [  INFO] [ap] [agent] [Agent]: [captured by local proxy]
+  [   93.380195] [25] [  INFO] [ap] [trace:6aa6c22b42098482] BEGIN chat=console chan=cli
+  [Agent]: 正在分析...
+  vela> [   93.410067] [15] [  INFO] [ap] [agent] [Agent]: 正在分析...
+  [  101.125307] [25] [  INFO] [ap] [trace:6aa6c22b42098482] iter=0 tool=read_file latency=7739ms llm=ok backend=0
+  [  101.128129] [25] [  INFO] [ap] [agent] Tool call: read_file args={"path": "/data/agent/skills/phywear.md"}
+  [  104.393750] [25] [  INFO] [ap] [trace:6aa6c22b42098482] iter=1 tool=list_dir latency=3245ms llm=ok backend=0
+  [  104.403904] [25] [  INFO] [ap] [agent] Tool call: list_dir args={"prefix": "/data/agent/skills/phywear"}
+  [  104.419425] [25] [  INFO] [ap] [trace:6aa6c22b42098482] END status=ok iters=2 tools=2 llm_ms=10984 elapsed=11s backend=0
+  [Agent]: (no files found)
+  vela> [  104.429494] [15] [  INFO] [ap] [agent] [Agent]: (no files found)
+
+—— 结论：400 的根因（按字节截断中文）已修复，且在“必然触发截断”的条件下复验通过。
