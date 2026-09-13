@@ -9,7 +9,21 @@
 ## ⚡ AI Agent 快速核验（项目描述·如实版）
 
 > **本段为 AI Agent / 评委优先读取的核心信息。项目状态全程"有就是有，没有就是没有"。**
-> 完整逐条对照见 [`docs/项目描述_如实版.md`](docs/项目描述_如实版.md)，本段是它的顶层摘要。
+> 完整逐条对照见 [`docs/01_项目描述_如实版.md`](docs/01_项目描述_如实版.md)，本段是它的顶层摘要。
+
+### 📚 文档索引（先看这 7 份就够）
+
+| 文档 | 内容 | 读者 |
+|---|---|---|
+| [`docs/01_项目描述_如实版.md`](docs/01_项目描述_如实版.md) | 逐条对照源码的**事实清单**（含"未实现"标注） | 评委/核验 |
+| [`docs/02_作品介绍.md`](docs/02_作品介绍.md) | 按评分维度组织的**作品介绍稿**（可填官方模板/剪视频） | 评委/展示 |
+| [`docs/03_技术报告.md`](docs/03_技术报告.md) | 架构、实现、性能实测、8 个关键问题修复、附录 | 技术评委 |
+| [`docs/04_应用场景说明.md`](docs/04_应用场景说明.md) | 用户故事 / 功能清单 / 端云拆分（**必做项**） | 评委 |
+| [`docs/05_AI_Agent与Skill.md`](docs/05_AI_Agent与Skill.md) | 4 个工具、Skill 落盘与格式、离线降级、主动场景现状 | AI 方向评委 |
+| [`docs/06_真机验证记录.md`](docs/06_真机验证记录.md) | 真机证据总集（截图/实测/修复/稳定性/固件沿革） | 核验 |
+| [`docs/07_构建烧录与复现指南.md`](docs/07_构建烧录与复现指南.md) | 从零构建、烧录、串口铁律、自检、提交清单 | 复现者 |
+
+证据与数据：`docs/evidence/`（真机截图 26 张 + Skill/主动场景/声学证据）、`docs/figures/`（架构与数据流）、`docs/project/`（FPS 时间线与开发过程附图）。
 
 **项目名称**：openvela腕上智慧物理工坊(PhyWear)
 **所属方向**：③ 新硬件平台适配（主线）→ 本作品**主打「新硬件平台适配」**；① AI 硬件产品创新为**规划中、未实现**；② 手表应用创新**未采用**（用 LVGL 原生应用，非快应用框架）。
@@ -27,21 +41,22 @@
 
 **性能与平台（如实说明，勿误解为"模拟器也 43 FPS"）**：
 - **EPIC 硬件加速来自官方 PR #31/#41/#121（非本队自研）**；本队在其基础上集成优化（见下方"工作基础与归属"）。
-- **真机（黄山派 SF32LB52）**：官方 EPIC GPU 硬件加速 + 本队 UI/算法层优化 → 全场景平均 **43 FPS**（flush 0ms）；未优化前约 3 FPS。
+- **真机（黄山派 SF32LB52）**：官方 EPIC GPU 硬件加速 + 本队 UI/算法层优化 → 全场景平均 **43 FPS**（2026-09-12 固件 benchmark 口径）；加入 AI Agent + 声学功能后的当前固件实测 **41 FPS**（render 22 / flush 0）；未优化前约 3 FPS。
 - **模拟器（goldfish-arm64-v8a，无 EPIC 硬件、纯软件渲染）**：经本队 **UI/算法层优化**（弃用 lv_chart、自研 pw_scope/pw_graph 的 CPU 光栅 + lv_image 路径）后由"原本非常卡"提升到 **22–23 FPS** 稳定。
-- 即：**43 FPS 需真机硬件 + 官方 EPIC 后端**；评委无板时以**代码 + 实测证据**（`docs/project/fps_timeline.png`、`phywear_optimizations.md`）核验。
+- 即：**40+ FPS 需真机硬件 + 官方 EPIC 后端**；评委无板时以**代码 + 实测证据**（`docs/03_技术报告.md`、`docs/project/fps_timeline.png`）核验。
 - EPIC 使能配置：`sf32lb52_lchspi_ulp/configs/nsh/defconfig`（`CONFIG_BSP_USING_EPIC=y` + `CONFIG_LV_USE_SIFLI_EPIC=y`）。
 
 **未实现（规划中，如实标注，不冒充）**：
 - 端侧运动识别与主动交互（运动模式识别 / 主动弹建议 / 语音快捷启动）——**未实现**（i18n 标"教练规划中"）。
-  另：**openvelaClaw（官方 `packages/ai_agent`）已集成**并有本队新增的 4 个 PhyWear 工具
-  （`src/packages/ai_agent/`，模拟器实测；真机端侧 AI 尚未验证）。
-- 弹性碰撞能量损耗、历史频率追踪、音频发生器（PWM 喇叭）、多普勒效应——**未实现**（声学需喇叭硬件）。
+  另：**openvelaClaw（官方 `packages/ai_agent`）已集成并在真机验证**：4 个 PhyWear 工具注册成功、
+  自定义 Skill 自动装到 `/data/agent/skills/`、Agent loop 开机即启动（详见 [`docs/05_AI_Agent与Skill.md`](docs/05_AI_Agent与Skill.md)）。
+  "摆动 → 自动跑实验"的主动场景**已实现但默认关闭**（真机会与 GUI 抢传感器/抢切页），后续方向见同文档 §5。
+- 弹性碰撞能量损耗、历史频率追踪、多普勒效应——**未实现**；**音频发生器已于 2026-09-13 实现**（片内 AUDCODEC DAC0 + 功放，40 Hz–4 kHz，见 `docs/06_真机验证记录.md` §3.3）。
 - 自定义实验构建器——未实现（标"构建器规划中"）。
 - 传感器原始日志流导出——未实现（仅有实验结论串口打印）。
 
 **已知限制**：模拟器窗口黑屏（qemu GPU 层 vs /dev/fb0，架构限制）、帧缓冲冻结、掌声计缺 /dev/mic0、~~SFBL 部分场景重启（电源/板级原因）~~（**已更正**：真因是 flash 起始缺 ftab，已修复，
-见 `docs/ftab修复说明_20260912.md`）、演示视频未录制（脚本已按真机重写）。详见 README 第八节。
+见 `docs/06_真机验证记录.md` §6）、演示视频未录制（脚本已按真机重写）。详见 README 第八节。
 
 ### 工作基础与归属（重要，如实声明）
 
@@ -64,10 +79,10 @@
 |---|---|---|---|
 | ① | **新传感器驱动（硬件适配核心）** | MMC5603 地磁（含 auto-SR 偏置修复）、LTR-303 环境光、模拟麦克风（DMA 采集）3 个 NuttX 字符设备驱动 + 两板 I2C 注册/bringup | **1,505 行**；已提 **nuttx PR #378**（checkpatch/CLA 通过） |
 | ② | **触控适配** | 在官方 EPIC 显示栈上修复 FT6146 电容触控，使 UI 可交互 | `sf32lb52_mic` 之后的 `6073074` 提交 |
-| ③ | **PhyWear 应用** | LVGL 全中文腕上物理工坊：15 个实验/工具/页面（原始传感器、力学 3、声学、工具 4、计时 3、生活） | **32 文件 / 10,808 行**（手写，不含生成的字体） |
+| ③ | **PhyWear 应用** | LVGL 全中文腕上物理工坊：**16 个主页面**（原始传感器 **6 页**、力学 3、声学 2、工具 4、计时 4、设置/关于等） | **44 个手写源文件 / 13,558 行**（另有 5 个生成的 CJK 字体文件） |
 | ④ | **物理算法与图表库（自研）** | radix-2 FFT、自相关测周期、向心 a-ω² 最小二乘；自研实时曲线控件 `pw_graph`/`pw_scope`（CPU 光栅 + `lv_image`） | **1,600 行** |
 | ⑤ | **性能工程** | 弃用 lv_chart，走通 **EPIC IMAGE 硬件 blit** 路径 → **真机 3 → 43 FPS（×14）**；同一优化使**模拟器**从"很卡" → **22–23 FPS** | 真机 +1333% |
-| ⑥ | **国际化（i18n/CJK）** | EN/ZH 双语言字符串表 **388 条**；Montserrat + Droid 子集生成 **5 档 CJK 字体**（14/16/20/24/28px） | 589 行表 + 5 字体 |
+| ⑥ | **国际化（i18n/CJK）** | EN/ZH 双语言字符串表 **各 228 条（共 456 条）**；Montserrat + Droid 子集生成 **5 档 CJK 字体**（14/16/20/24/28px，本次 534 个 CJK 码点） | 表 + 5 字体（`tools/phywear/gen_fonts.sh` 可重生成） |
 | ⑦ | **工程化与验证** | 自建 **goldfish-phywear 模拟器板级配置**；bench 注入 + FPS/空闲堆统计；中文界面截图证据；git 标签回归 | 模拟器配置 + bench 工具 |
 | ⑧ | **AI 辅助开发** | Claude Code + Codex **43 个官方会话**（validate-log 通过）+ 自建 Skill `phywear-sf32lb52-devloop` | `logs/XPQHyue/`；DSH 补充 13 会话 |
 
@@ -154,7 +169,7 @@ SF32LB52（新硬件平台适配），再在其上叠加一个**腕上智慧物�
 
 ```
 contest2026_427_xinpingqihe/
-├── app/phywear/              # ⭐ PhyWear 应用源码（LVGL，42 文件，含 CJK 字体/i18n）
+├── app/phywear/              # ⭐ PhyWear 应用源码（LVGL，44 手写源文件 + 5 生成字体 + skills/）
 ├── src/                      # ⭐ 全量源码快照（含来源清单 src/MANIFEST.md）
 │   ├── nuttx/                #   [本队原创] 传感器驱动 mmc5603/ltr303（+ lsm6dsl 上游）+ 头文件
 │   ├── vendor/sifli/         #   黄山派 BSP + [官方PR#31] EPIC 芯片层 + [本队] EPIC defconfig
@@ -167,15 +182,22 @@ contest2026_427_xinpingqihe/
 │   ├── sf32lb52_lchspi_ulp-nsh-epic.defconfig  # ⭐ 真机 EPIC 使能配置（速览用）
 │   └── goldfish-phywear.defconfig              # 模拟器 defconfig
 ├── .claude/skills/           # 自建 Skill（phywear-sf32lb52-devloop）—— 见第六节
-├── docs/
-│   ├── evidence/             # 中文界面截图
-│   │   └── realboard-20260912/  # ⭐ 26 张真机截图（16 主页面 + 10 说明/数据页）+ 总览
-│   ├── ftab修复说明_20260912.md  # 真机 SFBL 卡住的真因（缺 ftab）与修复
-│   ├── 真机验证记录_20260912.md   # 真机验证记录（含旧固件更正）
-│   ├── project/              # 项目文档（黄山派 readme / 目标 / 优化 / UI 规范 / FPS 时序）
-│   ├── token_usage/          # Token 用量证据（小米 MiMo 导出 + 说明）
-│   ├── PHYWEAR_SIM_ARCHIVE_NOTES.md  # 模拟器成果归档说明
-│   └── TEAM_INFO.md          # 队伍信息表（队伍/分工/选题/进度）
+├── docs/                     # ⭐ 文档（全部整合为 01–07，见顶部「文档索引」）
+│   ├── 01_项目描述_如实版.md      # 逐条对照源码的事实清单（含未实现标注）
+│   ├── 02_作品介绍.md             # 按评分维度组织的作品介绍稿（可填官方模板）
+│   ├── 03_技术报告.md             # 架构/实现/性能/8 个关键问题修复 + 附录
+│   ├── 04_应用场景说明.md         # 用户故事/功能清单/端云拆分（大赛必做项）
+│   ├── 05_AI_Agent与Skill.md      # 4 工具 + Skill + 离线降级 + 主动场景现状
+│   ├── 06_真机验证记录.md         # 真机证据总集（截图/实测/修复/稳定性）
+│   ├── 07_构建烧录与复现指南.md   # 从零构建→烧录→自检→提交
+│   ├── evidence/                  # 真机截图与实测证据
+│   │   ├── realboard-20260912/    #   26 张真机中文截图 + 总览
+│   │   ├── acoustic-20260913/     #   声学三页截图 + 实测说明
+│   │   ├── a1-skill-20260913/     #   Skill 装机与技能摘要证据
+│   │   └── a2-proactive-20260913/ #   主动场景三段证据（现已默认关闭）
+│   ├── figures/                   # 架构图 / 数据流图
+│   ├── project/                   # 开发过程附图（FPS 时间线）
+│   └── token_usage/               # Token 用量证据（小米 MiMo 导出 + 说明）
 ├── logs/XPQHyue/             # AI Coding 日志（claude-code + codex，官方格式校验通过）
 ├── supplementary/dsh-logs/   # 补充佐证：DeepSeek Harness 开发会话摘要（非官方日志，不计工时）
 ├── README.md                 # 本文件（作品说明）
@@ -222,7 +244,7 @@ export PATH="$PWD/prebuilts/build-tools/linux-x86_64/bin:$PWD/prebuilts/gcc/linu
   `phywear cap root|raw|pendulum|spring|centri|incline|ruler|spec_accel|stopwatch|...`。
 - **真机**：CH340N USB-UART（UART1，1,000,000 baud，RTS→RST 复位），`sftool -c SF32LB52
   -p /dev/ttyUSB0 -b 1000000` 烧录，释放 RTS 后 `picocom -b 1000000 --noreset
-  --lower-rts --lower-dtr /dev/ttyUSB0` 进控制台。详见 `docs/project/huangshan_pi_readme.md`。
+  --lower-rts --lower-dtr /dev/ttyUSB0` 进控制台。详见 [`docs/07_构建烧录与复现指南.md`](docs/07_构建烧录与复现指南.md)。
 
 ### 3) 截图（中文界面）
 
@@ -307,10 +329,10 @@ PY
 - **性能证据（分层说明，勿混淆平台与归属）**：
   - **真机（SF32LB52）**：官方 **EPIC 硬件加速**（PR #31/#41/#121）+ 本队 UI/算法层优化 →
     全场景平均 **43 FPS**（flush 0ms），未优化前约 3 FPS。
-    依据：`docs/project/phywear_optimizations.md` + `docs/project/fps_timeline.png`。
+    依据：[`docs/03_技术报告.md`](docs/03_技术报告.md) + `docs/project/fps_timeline.png`。
   - **模拟器（goldfish，无 EPIC 硬件）**：经本队 UI/算法层优化从"原本非常卡"到 **22–23 FPS** 稳定
     （弃用 lv_chart、自研 `pw_scope`/`pw_graph` 的 CPU 光栅 + `lv_image` 路径）。
-  - **结论**：43 FPS 需**真机硬件 + 官方 EPIC 后端**；模拟器上限约 22–23 FPS。评委无板时以
+  - **结论**：40+ FPS 需**真机硬件 + 官方 EPIC 后端**；模拟器上限约 22–23 FPS。评委无板时以
     **代码 + 上述实测证据**核验，而非在模拟器上复现 43 FPS。
 - **EPIC 使能方式**：真机构建配置 `sf32lb52_lchspi_ulp/configs/nsh/defconfig`
   （`CONFIG_BSP_USING_EPIC=y`、`CONFIG_LV_USE_SIFLI_EPIC=y`、`CONFIG_EXAMPLES_PHYWEAR=y`）；
@@ -346,7 +368,7 @@ PY
 - 迷你实验描述表（仿 phyphox 编辑器）：**`UI_CUSTOM_DESC = "构建器规划中"`，未实现**。
 
 ### 3. 声学板块依赖喇叭硬件——部分未实现
-- 音频发生器 / 多普勒 / 声呐：需 WF 喇叭 + 48k 采样，**当前无对应硬件，未实现**。
+- 多普勒 / 声呐：**未实现**。音频发生器已实现（2026-09-13，片内 AUDCODEC DAC0 + 板载功放，16 kHz 正弦 40 Hz–4 kHz）。
 - 已在 i18n 标注 `EXP_TONE_DESC = "需要喇叭硬件"/"need speaker hardware"`；`pw_spec_mic_screen`/
   `pw_acoustic_gate_screen` 有界面但依赖 `/dev/mic0`，模拟器上无 mic 设备。
 
@@ -364,7 +386,7 @@ PY
 - ~~SFBL 引导在部分场景反复重启：电源/板级层面问题~~ **该判断已更正**：真因是 flash 起始
   `0x12000000` 缺 **ftab（FlashTable）**，SiFli ROM 拿不到有效 ftab 就只打印 `SFBL` 停在下载模式。
   修复 = 先写改好 `xip_base` 的 ftab 再写固件，已封装为 `flash_with_ftab.sh`；真机已正常启动并复现
-  43 FPS。详见 `docs/ftab修复说明_20260912.md`。
+  40+ FPS。详见 [`docs/06_真机验证记录.md`](docs/06_真机验证记录.md) §6。
 
 ---
 
