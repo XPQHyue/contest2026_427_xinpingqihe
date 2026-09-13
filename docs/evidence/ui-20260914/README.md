@@ -18,3 +18,14 @@
    现绑定 LVGL `LV_EVENT_DELETE` 自动释放并复用槽位（详见 `docs/03 §6.10`）。
 
 > 截图为**模拟器**（390×450，与真机同分辨率同布局）；真机固件已烧录并复验（分块读回逐字节一致、启动到 NSH、`phywear micread` 正常）。
+
+## 第二批（按用户反馈，09-14 02:xx）
+
+| 反馈 | 处理 |
+|---|---|
+| 上下渐变"显得很奇怪" | **已移除**卡片纵向渐变，回到纯色卡片 |
+| 「力学」的旋转箭头不符 | 改为**自绘单摆**（摆线 + 摆球，LVGL 图元，不依赖字体/图标库） |
+| 「AI 教练」的信封不贴切 | 改为**自绘对话气泡 + 三个点** |
+| 真机点「读加速度」回 `error=accelerometer not available` | **真 bug，已修**：NuttX 的文件描述符属于任务组，AI Agent 是独立任务 → GUI 打开的 `g_imu_fd` 在 Agent 任务里无效。新增 `pw_sensors_read_imu_oneshot()`（在调用者任务里 open/read/close），工具两处调用改用它 |
+
+见 `main-menu-icons-v2.png`。

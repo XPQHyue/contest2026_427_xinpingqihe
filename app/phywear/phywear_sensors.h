@@ -86,6 +86,17 @@ void pw_sensors_close(void);
 
 int pw_sensors_read_imu(FAR struct pw_imu_s *out);
 
+/* 一次性读 IMU：在本任务里 open/read/close，不依赖 pw_sensors_open() 的
+ * 缓存 fd。
+ *
+ * 为什么需要（真机实测，2026-09-14）：NuttX 的文件描述符属于**任务组**，
+ * 而 AI Agent 是独立任务 —— 工具在 Agent 任务里调用 pw_sensors_read_imu()
+ * 时，GUI 任务打开的那个 g_imu_fd 在 Agent 任务里无效，于是
+ * phywear_read_sensor 一直回 "error=accelerometer not available"。
+ * 工具改用本接口后即可正常工作（GUI 侧仍用缓存 fd 的快路径）。 */
+
+int pw_sensors_read_imu_oneshot(FAR struct pw_imu_s *out);
+
 /* 读地磁（mG 整数）：成功返回 0。 */
 
 int pw_sensors_read_mag(FAR struct pw_mag_s *out);

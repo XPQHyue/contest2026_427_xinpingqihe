@@ -174,6 +174,50 @@ int pw_sensors_read_imu(FAR struct pw_imu_s *out)
   return 0;
 }
 
+int pw_sensors_read_imu_oneshot(FAR struct pw_imu_s *out)
+{
+#ifdef CONFIG_EXAMPLES_PHYWEAR_SIM
+  /* 模拟器没有真实驱动：沿用合成波形（并且同样不能被当作测量结果引用） */
+
+  return pw_sensors_read_imu(out);
+#else
+  struct lsm6dsl_sensor_data_s d;
+  int fd;
+
+  if (out == NULL)
+    {
+      return -1;
+    }
+
+  fd = open("/dev/lsm6dsl0", O_RDONLY);
+  if (fd < 0)
+    {
+      return -1;
+    }
+
+  /* GUI 可能已经启动过采样；SNIOC_START 是幂等的，重复调用无副作用 */
+
+  ioctl(fd, SNIOC_START, 0);
+
+  if (ioctl(fd, SNIOC_LSM6DSLSENSORREAD, (unsigned long)&d) < 0)
+    {
+      close(fd);
+      return -1;
+    }
+
+  close(fd);
+
+  out->ax = d.x_data;        /* mg */
+  out->ay = d.y_data;
+  out->az = d.z_data;
+  out->gx = d.g_x_data;      /* mdps */
+  out->gy = d.g_y_data;
+  out->gz = d.g_z_data;
+
+  return 0;
+#endif
+}
+
 int pw_sensors_read_mag(FAR struct pw_mag_s *out)
 {
   struct mmc5603_data_s d;
