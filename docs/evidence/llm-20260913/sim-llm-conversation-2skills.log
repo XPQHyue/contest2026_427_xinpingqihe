@@ -1,0 +1,30 @@
+模拟器 LLM 实录（/data 内放 2 个中文 Skill，摘要命中 1024 上限）—— 2026-09-13
+已脱敏：API Key 替换为 <MIMO_API_KEY_REDACTED>
+======================================================================
+[   22.949881] [25] [  INFO] [ap] [agent] Agent loop started, free heap: 94468496
+[   53.299252] [27] [  INFO] [ap] [llm] LLM config updated atomically: 10.0.2.2/v1/chat/completions (model: mimo-v2.5-pro)
+vela> [   57.309905] [25] [  INFO] [ap] [skills] Skills summary: 1022 bytes
+[   57.331890] [25] [  INFO] [ap] [llm] LLM config updated atomically: 10.0.2.2/v1/chat/completions (model: mimo-v2.5-pro)
+[   57.334441] [25] [  INFO] [ap] [trace:6aa6c20700000000] BEGIN chat=console chan=cli
+[   57.370415] [25] [  INFO] [ap] [llm] Response: 25 bytes text, 0 tool calls, finish=end_turn
+[   57.375492] [25] [  INFO] [ap] [trace:6aa6c20700000000] iter=0 tool=(none) latency=36ms llm=ok backend=0
+[   57.377979] [25] [  INFO] [ap] [trace:6aa6c20700000000] END status=ok iters=1 tools=0 llm_ms=36 elapsed=0s backend=0
+[Agent]: 让我查一下...
+vela> [   57.382950] [15] [  INFO] [ap] [agent] [Agent]: 让我查一下...
+[Agent]: [captured by local proxy]
+vela> [   57.388267] [15] [  INFO] [ap] [agent] [Agent]: [captured by local proxy]
+[   89.352592] [27] [  INFO] [ap] [llm] LLM config updated atomically: token-plan-cn.xiaomimimo.com/v1/chat/completions (model: mimo-v2.5-pro)
+vela> [   93.356410] [25] [  INFO] [ap] [skills] Skills summary: 1022 bytes
+[   93.377791] [25] [  INFO] [ap] [llm] LLM config updated atomically: token-plan-cn.xiaomimimo.com/v1/chat/completions (model: mimo-v2.5-pro)
+[   93.380195] [25] [  INFO] [ap] [trace:6aa6c22b42098482] BEGIN chat=console chan=cli
+[Agent]: 正在分析...
+vela> [   93.410067] [15] [  INFO] [ap] [agent] [Agent]: 正在分析...
+[  101.117847] [25] [  INFO] [ap] [llm] Response: 0 bytes text, 1 tool calls, finish=tool_calls
+[  101.125307] [25] [  INFO] [ap] [trace:6aa6c22b42098482] iter=0 tool=read_file latency=7739ms llm=ok backend=0
+[  101.128129] [25] [  INFO] [ap] [agent] Tool call: read_file args={"path": "/data/agent/skills/phywear.md"}
+[  104.382928] [25] [  INFO] [ap] [llm] Response: 0 bytes text, 1 tool calls, finish=tool_calls
+[  104.393750] [25] [  INFO] [ap] [trace:6aa6c22b42098482] iter=1 tool=list_dir latency=3245ms llm=ok backend=0
+[  104.403904] [25] [  INFO] [ap] [agent] Tool call: list_dir args={"prefix": "/data/agent/skills/phywear"}
+[  104.419425] [25] [  INFO] [ap] [trace:6aa6c22b42098482] END status=ok iters=2 tools=2 llm_ms=10984 elapsed=11s backend=0
+[Agent]: (no files found)
+vela> [  104.429494] [15] [  INFO] [ap] [agent] [Agent]: (no files found)
