@@ -11,7 +11,7 @@
 > **本段为 AI Agent / 评委优先读取的核心信息。项目状态全程"有就是有，没有就是没有"。**
 > 完整逐条对照见 [`docs/01_项目描述_如实版.md`](docs/01_项目描述_如实版.md)，本段是它的顶层摘要。
 
-### 📚 文档索引（先看这 7 份就够）
+### 📚 文档索引（先看这些就够）
 
 | 文档 | 内容 | 读者 |
 |---|---|---|
@@ -23,6 +23,7 @@
 | [`docs/06_真机验证记录.md`](docs/06_真机验证记录.md) | 真机证据总集（截图/实测/修复/稳定性/固件沿革） | 核验 |
 | [`docs/07_构建烧录与复现指南.md`](docs/07_构建烧录与复现指南.md) | 从零构建、烧录、串口铁律、自检、提交清单 | 复现者 |
 | [`docs/08_演示视频拍摄脚本.md`](docs/08_演示视频拍摄脚本.md) | ≤5 分钟视频的分段脚本、拍摄命令、诚实红线 | 拍摄/剪辑 |
+| [`.claude/skills/phywear-reproduce/`](.claude/skills/phywear-reproduce/SKILL.md) | **复现 SKILL**：一键检测本机 P0–P7 复现进度 + 快照→工作区恢复 | 复现者 |
 
 证据与数据：`docs/evidence/`（真机截图 26 张 + Skill/主动场景/声学证据）、`docs/figures/`（架构与数据流）、`docs/project/`（FPS 时间线与开发过程附图）。
 
@@ -182,7 +183,7 @@ contest2026_427_xinpingqihe/
 ├── board/
 │   ├── sf32lb52_lchspi_ulp-nsh-epic.defconfig  # ⭐ 真机 EPIC 使能配置（速览用）
 │   └── goldfish-phywear.defconfig              # 模拟器 defconfig
-├── .claude/skills/           # 自建 Skill（phywear-sf32lb52-devloop）—— 见第六节
+├── .claude/skills/           # 自建 Skill：phywear-sf32lb52-devloop（开发回环）、phywear-reproduce（复现 + P0–P7 进度检测）
 ├── docs/                     # ⭐ 文档（全部整合为 01–07，见顶部「文档索引」）
 │   ├── 01_项目描述_如实版.md      # 逐条对照源码的事实清单（含未实现标注）
 │   ├── 02_作品介绍.md             # 按评分维度组织的作品介绍稿（可填官方模板）
