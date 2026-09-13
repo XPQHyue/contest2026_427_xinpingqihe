@@ -168,6 +168,10 @@ lv_obj_t *pw_board_list(const char *title, lv_color_t accent,
 
 /* 设置页：语言切换（EN/ZH）+ 关于/许可入口。返回新屏对象。 */
 
+/* 声学：音频发生器（用板载扬声器发正弦） */
+
+lv_obj_t *pw_tone_screen(void);
+
 lv_obj_t *pw_settings_screen(void);
 
 /* 关于页：版本 + 免责/许可说明。返回新屏对象。 */

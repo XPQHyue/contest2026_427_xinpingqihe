@@ -80,6 +80,11 @@ static void sifli_psram_preinit(void)
 
   HAL_PMU_ConfigPeriLdo(PMU_PERI_LDO_1V8, true, true);
 
+  /* 1.8V LDO 起来后留一点稳定时间（与 bsp_init.c 里 XTAL32/DLL 的等待配套，
+   * 保证 PSRAM 初始化时序与镜像布局无关）。 */
+
+  HAL_Delay_us(2000);
+
   /* BSP_Board_PreInit has enabled DLL2; match the validated RT PSRAM path. */
 
   HAL_RCC_HCPU_ClockSelect(RCC_CLK_MOD_FLASH1, RCC_CLK_FLASH_DLL2);

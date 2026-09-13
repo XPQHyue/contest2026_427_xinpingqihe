@@ -32,7 +32,7 @@ struct pw_ai_screen_s
 static const struct pw_ai_screen_s g_pw_ai_screens[] =
 {
   { "root",         "Home grid of all experiment groups" },
-  { "raw",          "Raw sensors: accelerometer / gyro / magnetometer / light" },
+  { "raw",          "Raw sensors: accel / gyro / mag / light / microphone / speaker" },
   { "pendulum",     "Pendulum: measure local gravity g from swing period" },
   { "spring",       "Spring: oscillation period and relative amplitude" },
   { "centri",       "Centripetal: radius r from a vs w^2 slope" },
@@ -45,6 +45,9 @@ static const struct pw_ai_screen_s g_pw_ai_screens[] =
   { "lightgate",    "Light gate: threshold crossing timing" },
   { "acousticgate", "Acoustic gate: loudness threshold timing" },
   { "applause",     "Applause meter: loudness and clap counting" },
+  { "tone",         "Tone generator: sine 40 Hz - 4 kHz from the speaker" },
+  { "mic",          "Raw microphone level (dBFS) and 32-band bars" },
+  { "spk",          "Speaker page: play/stop a 440 Hz test tone" },
   { "settings",     "Settings (UI language)" },
   { "about",        "About PhyWear" },
 };

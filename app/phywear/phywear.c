@@ -68,6 +68,9 @@
 #include "phywear_i18n.h"
 #include "pw_ai.h"
 #include "pw_shot.h"
+#include "pw_skill.h"
+#include "pw_watch.h"
+#include "pw_tone.h"
 #include "phywear_raw.h"
 
 #include <nuttx/video/fb.h>
@@ -548,6 +551,9 @@ int pw_cap_open(const char *name)
   else if (strcmp(name, "acousticgate") == 0) scr = pw_acoustic_gate_screen();
   else if (strcmp(name, "applause")  == 0) scr = pw_applause_screen();
   else if (strcmp(name, "settings")  == 0) scr = pw_settings_screen();
+  else if (strcmp(name, "tone")      == 0) scr = pw_tone_screen();
+  else if (strcmp(name, "mic")       == 0) { scr = pw_raw_screen(); pw_raw_goto(4); }
+  else if (strcmp(name, "spk")       == 0) { scr = pw_raw_screen(); pw_raw_goto(5); }
   else if (strcmp(name, "about")     == 0) scr = pw_about_screen();
   else return 0;
 
@@ -950,6 +956,118 @@ int main(int argc, FAR char *argv[])
       bench_page = (argc > 3) ? atoi(argv[3]) : 0;
     }
 
+  /* 子命令：phywear spkpa 0|1 → 直接开关功放（听感 A/B 用） */
+
+  if (argc > 2 && strcmp(argv[1], "spkpa") == 0)
+    {
+      int on = atoi(argv[2]) != 0;
+      int rc = pw_tone_set_pa(on);
+
+      printf("spkpa: %s -> %d\n", on ? "on" : "off", on);
+      return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
+  /* 子命令：phywear micread [n] → 连续读麦克风并打印峰值/有效值（自检） */
+
+  if (argc > 1 && strcmp(argv[1], "micread") == 0)
+    {
+      int n = (argc > 2) ? atoi(argv[2]) : 20;
+      int fd = open("/dev/mic0", O_RDONLY);
+      int i;
+
+      if (fd < 0)
+        {
+          printf("micread: open /dev/mic0 failed: %d\n", errno);
+          return EXIT_FAILURE;
+        }
+
+      for (i = 0; i < n; i++)
+        {
+          int16_t buf[1024];
+          ssize_t r = read(fd, buf, sizeof(buf));
+
+          if (r == (ssize_t)sizeof(buf))
+            {
+              long sum = 0;
+              int peak = 0;
+              int j;
+
+              for (j = 0; j < 1024; j++)
+                {
+                  int v = buf[j] < 0 ? -buf[j] : buf[j];
+
+                  sum += (long)buf[j] * buf[j];
+                  if (v > peak)
+                    {
+                      peak = v;
+                    }
+                }
+
+              /* 零交叉估主频：用于核对"麦克风采样率/频谱轴"是否准
+               * （样本率 16 kHz、每次 1024 样本 → 分辨率 15.6 Hz） */
+
+              {
+                int zc = 0;
+                int prev = 0;
+                int jj;
+
+                for (jj = 0; jj < 1024; jj++)
+                  {
+                    if (buf[jj] > 300)
+                      {
+                        if (prev < 0)
+                          {
+                            zc++;
+                          }
+
+                        prev = 1;
+                      }
+                    else if (buf[jj] < -300)
+                      {
+                        prev = -1;
+                      }
+                  }
+
+                printf("mic %2d: peak=%5d (%6.1f dBFS)  rms=%6.1f  ~%5.1f Hz\n",
+                       i, peak,
+                       (peak > 0)
+                           ? 20.0 * log10((double)peak / 32768.0)
+                           : -99.0,
+                       sqrt((double)sum / 1024.0),
+                       zc * 16000.0 / 1024.0);
+              }
+            }
+          else
+            {
+              printf("mic %2d: read failed (%d)\n", i, (int)r);
+            }
+        }
+
+      close(fd);
+      return EXIT_SUCCESS;
+    }
+
+  /* 子命令：phywear tone <Hz> [ms] [dB] → 扬声器自检（发一段正弦） */
+
+  if (argc > 2 && strcmp(argv[1], "tone") == 0)
+    {
+      uint32_t freq = (uint32_t)atoi(argv[2]);
+      int ms = (argc > 3) ? atoi(argv[3]) : 2000;
+      int db = (argc > 4) ? atoi(argv[4]) : INT32_MIN;
+      int amp = (argc > 5) ? atoi(argv[5]) : 0;
+      int rc;
+
+      if (ms <= 0)
+        {
+          ms = 2000;
+        }
+
+      rc = pw_tone_beep(freq, ms, db);
+      printf("tone: %s (freq=%u ms=%d db=%d rc=%d errno=%d)\n",
+             rc == 0 ? "ok" : "failed", (unsigned)freq, ms, db, rc, errno);
+      return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    }
+
   /* 子命令：phywear pendulum [L] → 摆测 g 实验 */
 
   if (argc > 1 && strcmp(argv[1], "pendulum") == 0)
@@ -1115,6 +1233,15 @@ int main(int argc, FAR char *argv[])
         }
     }
 
+  /* 把 PhyWear 的 Markdown Skill 发布到 AI Agent 的技能目录。
+   * 真机 /data 是 tmpfs，掉电即空，所以每次启动都要装一遍。 */
+
+  pw_skill_install();
+
+  /* 主动场景：摆动检测（每 100 ms 采一次加速度，持续摆动就通知 Agent） */
+
+  pw_watch_init();
+
   /* 主循环：驱动 LVGL。pendbench 模式附带每 2s 帧节奏/空闲堆统计。 */
 
   {
@@ -1124,6 +1251,11 @@ int main(int argc, FAR char *argv[])
 
     clock_gettime(CLOCK_MONOTONIC, &tmark);
     clock_gettime(CLOCK_MONOTONIC, &dmark);
+
+    /* GUI 心跳（每 30 s 一行）：真机排查卡死时用来判断 GUI 线程是否还活着 */
+
+    time_t alive_mark = 0;
+    unsigned long alive_frames = 0;
 
     /* 告诉 AI Agent 桥：GUI 主循环开始跑，可以受理"打开某页"请求了 */
 
@@ -1142,10 +1274,33 @@ int main(int argc, FAR char *argv[])
 
         lv_timer_handler();
         loop++;
+        alive_frames++;
+
+        {
+          struct timespec an;
+
+          clock_gettime(CLOCK_MONOTONIC, &an);
+          if (an.tv_sec - alive_mark >= 30)
+            {
+              /* 注意：这里统计的是 GUI 主循环次数（≈渲染帧率的 2 倍），
+               * 不是屏幕刷新率，故记作 loops/s；真实帧率见 benchmark。 */
+
+              syslog(LOG_INFO, "[phywear] alive t=%lds loops/s=%lu\n",
+                     (long)an.tv_sec,
+                     (unsigned long)(alive_frames / 30));
+              alive_mark = an.tv_sec;
+              alive_frames = 0;
+            }
+        }
 
         /* AI Agent 桥：执行挂起的"打开某页"请求（必须在 GUI 线程内） */
 
         pw_ai_poll();
+
+        /* 主动场景：自己发现"手表在持续摆动"，并把事件推给 AI Agent。
+         * 内部按 100 ms 限频，不参与截图/实验页的采样节奏。 */
+
+        pw_watch_poll();
 
         /* Console screenshot: let the page settle, stream one frame to the
          * host, then either finish (--shot) or advance (--sweep / --p2). */

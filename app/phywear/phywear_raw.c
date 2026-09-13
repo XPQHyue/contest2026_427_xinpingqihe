@@ -20,8 +20,9 @@
  *
  ****************************************************************************/
 
-/* 原始传感器板块：4 页横滑（Accelerometer / Gyroscope / Magnetometer /
- * Light），每页一个大数值实时显示，底部翻页指示点 + 左右箭头。
+/* 原始传感器板块：6 页横滑（Accelerometer / Gyroscope / Magnetometer /
+ * Light / Microphone / Speaker），每页一个大数值实时显示，底部翻页指示点 +
+ * 左右箭头。麦克风页由后台线程读 /dev/mic0 显示电平，扬声器页可直接放测试音。
  * 数据经 phywear_sensors 层换算为物理单位（g / dps / mG / lux）。
  *
  * 布局（390×450）：
@@ -32,8 +33,13 @@
 
 #include <nuttx/config.h>
 
+#include <errno.h>
+#include <fcntl.h>
+#include <math.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <lvgl/lvgl.h>
 
@@ -41,12 +47,13 @@
 #include "phywear_sensors.h"
 #include "phywear_raw.h"
 #include "phywear_i18n.h"
+#include "pw_tone.h"
 
 /****************************************************************************
  * Private Definitions
  ****************************************************************************/
 
-#define RAW_PAGES      4
+#define RAW_PAGES      6
 #define RAW_PAGE_W     390
 #define RAW_PAGE_H     342
 
@@ -100,6 +107,11 @@ static const int g_delta_next = 1;
  * Private Functions
  ****************************************************************************/
 
+/* 麦克风采集线程：定义在本文件后部，这里先声明（raw_set_page 会用到） */
+
+static void raw_mic_start(void);
+static void raw_mic_stop(void);
+
 /****************************************************************************
  * Name: raw_sync_dots
  ****************************************************************************/
@@ -134,6 +146,22 @@ static void raw_set_page(int idx)
 
   g_raw.idx = idx;
   raw_sync_dots();
+
+  /* 只有麦克风页需要采集线程（离开即停，避免与频谱页抢 /dev/mic0） */
+
+  if (idx == 4)
+    {
+      /* 麦克风与扬声器共用片内 AUDCODEC：真机实测两者同时工作会卡死
+       * （喇叭放音 + 频谱页采样，约几分钟后看门狗复位），
+       * 所以进入麦克风页先停掉正在播放的声音。 */
+
+      pw_tone_stop();
+      raw_mic_start();
+    }
+  else
+    {
+      raw_mic_stop();
+    }
 }
 
 /****************************************************************************
@@ -150,6 +178,17 @@ static void raw_scroll_to(int idx, bool anim)
   raw_set_page(idx);
   lv_obj_scroll_to_x(g_raw.scroller, idx * RAW_PAGE_W,
                      anim ? LV_ANIM_ON : LV_ANIM_OFF);
+}
+
+/****************************************************************************
+ * Name: raw_del_cb
+ ****************************************************************************/
+
+static void raw_del_cb(lv_event_t *e)
+{
+  (void)e;
+
+  raw_mic_stop();
 }
 
 /****************************************************************************
@@ -225,6 +264,236 @@ static void raw_build_axis_page(int pi, int x, const char *name,
                                          PW_COL_TEXT);
       lv_obj_set_pos(g_raw.pg[pi].val[i], RAW_VAL_X, rowy + 8);
     }
+}
+
+
+/****************************************************************************
+ * 麦克风：后台线程读 /dev/mic0（每次 read 阻塞约 64 ms），只保留电平
+ * 与最近 96 个样本给页面画柱状图。离开本页即停线程。
+ ****************************************************************************/
+
+#define RAW_MIC_N      1024
+#define RAW_MIC_BARS   32
+
+static pthread_t g_raw_mic_tid;
+static volatile int g_raw_mic_run;
+static volatile int g_raw_mic_dbm;      /* 峰值 dBFS（负值，越小越安静） */
+static int16_t g_raw_mic_peak[RAW_MIC_BARS];
+static lv_obj_t *g_raw_mic_bar[RAW_MIC_BARS];
+
+static void *raw_mic_thread(void *arg)
+{
+  int fd;
+  int16_t buf[RAW_MIC_N];
+
+  (void)arg;
+
+  fd = open("/dev/mic0", O_RDONLY);
+  if (fd < 0)
+    {
+      g_raw_mic_run = 0;
+      return NULL;
+    }
+
+  while (g_raw_mic_run)
+    {
+      ssize_t r = read(fd, buf, sizeof(buf));
+      int i;
+      int peak = 0;
+
+      if (r != (ssize_t)sizeof(buf))
+        {
+          usleep(10 * 1000);
+          continue;
+        }
+
+      /* 峰值电平 + 32 段柱状（每段 32 个样本取最大） */
+
+      for (i = 0; i < RAW_MIC_N; i++)
+        {
+          int v = buf[i] < 0 ? -buf[i] : buf[i];
+
+          if (v > peak)
+            {
+              peak = v;
+            }
+
+          if ((i % (RAW_MIC_N / RAW_MIC_BARS)) == 0 &&
+              (i / (RAW_MIC_N / RAW_MIC_BARS)) < RAW_MIC_BARS)
+            {
+              g_raw_mic_peak[i / (RAW_MIC_N / RAW_MIC_BARS)] = (int16_t)v;
+            }
+        }
+
+      for (i = 0; i < RAW_MIC_BARS; i++)
+        {
+          int seg = 0;
+          int j;
+
+          for (j = 0; j < RAW_MIC_N / RAW_MIC_BARS; j++)
+            {
+              int v = buf[i * (RAW_MIC_N / RAW_MIC_BARS) + j];
+
+              v = v < 0 ? -v : v;
+              if (v > seg)
+                {
+                  seg = v;
+                }
+            }
+
+          g_raw_mic_peak[i] = (int16_t)seg;
+        }
+
+      /* dBFS = 20*log10(peak/满量程)，静音时给 -99 下限 */
+
+      g_raw_mic_dbm = (peak > 0)
+                          ? (int)(20.0f * log10f((float)peak / 32768.0f))
+                          : -99;
+
+      if (g_raw_mic_dbm < -99)
+        {
+          g_raw_mic_dbm = -99;
+        }
+    }
+
+  close(fd);
+  return NULL;
+}
+
+static void raw_mic_start(void)
+{
+  if (g_raw_mic_run)
+    {
+      return;
+    }
+
+  g_raw_mic_run = 1;
+  g_raw_mic_dbm = -99;
+  memset(g_raw_mic_peak, 0, sizeof(g_raw_mic_peak));
+
+  if (pthread_create(&g_raw_mic_tid, NULL, raw_mic_thread, NULL) != 0)
+    {
+      g_raw_mic_run = 0;
+    }
+}
+
+static void raw_mic_stop(void)
+{
+  g_raw_mic_run = 0;
+}
+
+/****************************************************************************
+ * 扬声器页按钮
+ ****************************************************************************/
+
+static void raw_spk_play_cb(lv_event_t *e)
+{
+  (void)e;
+
+  pw_tone_play(440, INT32_MIN);
+}
+
+static void raw_spk_stop_cb(lv_event_t *e)
+{
+  (void)e;
+
+  pw_tone_stop();
+}
+
+/****************************************************************************
+ * Name: raw_build_mic_page
+ *
+ * Description:
+ *   麦克风页：大号 dBFS 电平 + 32 段电平柱 + 提示。
+ *
+ ****************************************************************************/
+
+static void raw_build_mic_page(int pi, int x)
+{
+  lv_obj_t *pg = lv_obj_create(g_raw.scroller);
+  lv_obj_t *sub;
+  lv_obj_t *uni;
+  int i;
+
+  lv_obj_set_size(pg, RAW_PAGE_W, RAW_PAGE_H);
+  lv_obj_set_pos(pg, x, 0);
+  lv_obj_set_style_bg_opa(pg, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(pg, 0, 0);
+  lv_obj_set_style_pad_all(pg, 0, 0);
+  lv_obj_remove_flag(pg, LV_OBJ_FLAG_SCROLLABLE);
+
+  sub = pw_label_new(pg, PW_STR(RAW_MIC), PW_FNT_LARGE, PW_ACC_ACOU);
+  lv_obj_set_pos(sub, 20, 4);
+
+  uni = pw_label_new(pg, "dBFS", PW_FNT_SMALL, PW_COL_DIM);
+  lv_obj_align(uni, LV_ALIGN_TOP_RIGHT, -20, 8);
+
+  g_raw.pg[pi].val[0] = pw_label_new(pg, "--", PW_FNT_XXL, PW_COL_TEXT);
+  lv_obj_set_pos(g_raw.pg[pi].val[0], 72, 70);
+
+  /* 32 段电平柱：用一排小方块表示 */
+
+  for (i = 0; i < RAW_MIC_BARS; i++)
+    {
+      lv_obj_t *bar = lv_obj_create(pg);
+
+      lv_obj_set_size(bar, 8, 8);
+      lv_obj_set_pos(bar, 18 + i * 11, 170);
+      lv_obj_set_style_bg_color(bar, PW_COL_CARD_LT, 0);
+      lv_obj_set_style_radius(bar, 2, 0);
+      lv_obj_set_style_border_width(bar, 0, 0);
+      lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+      g_raw_mic_bar[i] = bar;
+    }
+
+  g_raw.pg[pi].sub[1] = pw_label_new(pg, PW_STR(RAW_MIC_HINT),
+                                     PW_FNT_BODY, PW_COL_FAINT);
+  lv_obj_set_pos(g_raw.pg[pi].sub[1], 18, 300);
+}
+
+/****************************************************************************
+ * Name: raw_build_spk_page
+ *
+ * Description:
+ *   扬声器页：状态文本 + 播放/停止按钮。
+ *
+ ****************************************************************************/
+
+static void raw_build_spk_page(int pi, int x)
+{
+  lv_obj_t *pg = lv_obj_create(g_raw.scroller);
+  lv_obj_t *sub;
+  lv_obj_t *btn;
+  lv_obj_t *lab;
+
+  lv_obj_set_size(pg, RAW_PAGE_W, RAW_PAGE_H);
+  lv_obj_set_pos(pg, x, 0);
+  lv_obj_set_style_bg_opa(pg, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(pg, 0, 0);
+  lv_obj_set_style_pad_all(pg, 0, 0);
+  lv_obj_remove_flag(pg, LV_OBJ_FLAG_SCROLLABLE);
+
+  sub = pw_label_new(pg, PW_STR(RAW_SPK), PW_FNT_LARGE, PW_ACC_ACOU);
+  lv_obj_set_pos(sub, 20, 4);
+
+  g_raw.pg[pi].val[0] = pw_label_new(pg, "--", PW_FNT_MED, PW_COL_TEXT);
+  lv_obj_set_pos(g_raw.pg[pi].val[0], 24, 60);
+
+  btn = pw_card_new(pg, 160, 64, PW_COL_CARD);
+  lv_obj_set_pos(btn, 24, 140);
+  lv_obj_add_event_cb(btn, raw_spk_play_cb, LV_EVENT_CLICKED, NULL);
+  lab = pw_label_new(btn, PW_STR(SPK_PLAY), PW_FNT_MED, PW_ACC_ACOU);
+  lv_obj_center(lab);
+
+  btn = pw_card_new(pg, 160, 64, PW_COL_CARD);
+  lv_obj_set_pos(btn, 200, 140);
+  lv_obj_add_event_cb(btn, raw_spk_stop_cb, LV_EVENT_CLICKED, NULL);
+  lab = pw_label_new(btn, PW_STR(SPK_STOP), PW_FNT_MED, PW_COL_TEXT);
+  lv_obj_center(lab);
+
+  g_raw.pg[pi].sub[0] = pw_label_new(pg, PW_STR(RAW_SPK_HINT),
+                                     PW_FNT_BODY, PW_COL_FAINT);
+  lv_obj_set_pos(g_raw.pg[pi].sub[0], 24, 300);
 }
 
 /****************************************************************************
@@ -328,6 +597,51 @@ static void raw_tick_cb(lv_timer_t *timer)
           }
         break;
 
+      case 4:   /* Microphone */
+        {
+          int i;
+
+          lv_label_set_text_fmt(g_raw.pg[pi].val[0], "%d dBFS",
+                                (int)g_raw_mic_dbm);
+
+          for (i = 0; i < RAW_MIC_BARS; i++)
+            {
+              /* 每段 0..32767 → 4 级颜色（越亮越接近满刻度） */
+
+              int v = g_raw_mic_peak[i];
+              int db = (v > 0)
+                           ? (int)(20.0f * log10f((float)v / 32768.0f))
+                           : -99;
+              lv_color_t c = PW_COL_CARD_LT;
+
+              if (db > -20)
+                {
+                  c = PW_ACC_ACOU;
+                }
+              else if (db > -40)
+                {
+                  c = PW_COL_TEXT;
+                }
+              else if (db > -60)
+                {
+                  c = PW_COL_DIM;
+                }
+
+              lv_obj_set_style_bg_color(g_raw_mic_bar[i], c, 0);
+            }
+        }
+        break;
+
+      case 5:   /* Speaker */
+        lv_label_set_text_fmt(g_raw.pg[pi].val[0], "%s%s",
+                              pw_tone_available() ? "" : PW_STR(SPK_NO_HW),
+                              pw_tone_playing()
+                                  ? (pw_tone_available() ? PW_STR(SPK_PLAYING)
+                                                         : "")
+                                  : (pw_tone_available() ? PW_STR(SPK_IDLE)
+                                                         : ""));
+        break;
+
       case 3:   /* Light */
         if (pw_sensors_read_light(&light) == 0)
           {
@@ -345,6 +659,24 @@ static void raw_tick_cb(lv_timer_t *timer)
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+/****************************************************************************
+ * Name: pw_raw_goto
+ *
+ * Description:
+ *   直接跳到原始传感器板块的第 idx 页（0=加速度 1=陀螺 2=磁力 3=光
+ *   4=麦克风 5=扬声器）。供命令行截图与 AI Agent 使用。
+ ****************************************************************************/
+
+void pw_raw_goto(int idx)
+{
+  if (g_raw.scroller == NULL)
+    {
+      return;
+    }
+
+  raw_scroll_to(idx, false);
+}
 
 lv_obj_t *pw_raw_screen(void)
 {
@@ -379,6 +711,8 @@ lv_obj_t *pw_raw_screen(void)
   raw_build_axis_page(2, RAW_PAGE_W * 2, PW_STR(RAW_MAG), "mG",
                       PW_ACC_MAG);
   raw_build_light_page(3, RAW_PAGE_W * 3);
+  raw_build_mic_page(4, RAW_PAGE_W * 4);
+  raw_build_spk_page(5, RAW_PAGE_W * 5);
 
   /* 底部：左箭头 + 指示点 + 右箭头 */
 
@@ -410,6 +744,10 @@ lv_obj_t *pw_raw_screen(void)
                       (void *)&g_delta_next);
   lab = pw_label_new(btn, ">", PW_FNT_XL, PW_COL_DIM);
   lv_obj_center(lab);
+
+  /* 屏幕销毁时确保采集线程退出 */
+
+  lv_obj_add_event_cb(g_raw.scr, raw_del_cb, LV_EVENT_DELETE, NULL);
 
   /* 初始状态 + 周期刷新 */
 

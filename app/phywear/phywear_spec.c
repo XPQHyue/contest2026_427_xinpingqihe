@@ -61,6 +61,7 @@
 #include "pw_graph.h"
 #include "phywear_spec.h"
 #include "phywear_i18n.h"
+#include "pw_tone.h"
 
 /****************************************************************************
  * Private Definitions
@@ -1064,6 +1065,11 @@ lv_obj_t *pw_spec_accel_screen(void)
 
 lv_obj_t *pw_spec_mic_screen(void)
 {
+  /* 同 phywear_raw.c：麦克风频谱与扬声器互斥（共用片内 AUDCODEC）。
+   * 真机实测：喇叭持续放音 + 本页采样同时运行时，几分钟后卡死并被看门狗复位。 */
+
+  pw_tone_stop();
+
   lv_obj_t *scr = spec_screen_common(SPEC_KIND_MIC, PW_STR(SPEC_TITLE));
 
   if (!g_bench_on)

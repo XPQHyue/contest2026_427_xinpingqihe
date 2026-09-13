@@ -35,6 +35,11 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     phywear_i18n.c
     pw_ai.c
     pw_shot.c
+    pw_skill.c
+    pw_watch.c
+    pw_tone.c
+    phywear_tone.c
+    pw_skill_blob.c
     phywear_sensors.c
     pw_font_14.c
     pw_font_16.c
@@ -54,4 +59,17 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     pw_scope.c
     pw_graph.c
     pw_analysis.c)
+
+  # pw_watch.c talks to the AI Agent through its public client API.  The agent
+  # package publishes those headers but does not export them to other apps.
+  if(CONFIG_EXAMPLES_AI_AGENT_VELA)
+    target_include_directories(apps_phywear PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../../packages/ai_agent/include)
+  endif()
+
+  # pw_tone.c 直接用板级扬声器驱动的 ioctl 定义（真机才有该驱动）
+  if(CONFIG_SF32LB52_SPK)
+    target_include_directories(apps_phywear PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/../../../vendor/sifli/boards/sf32lb52/drivers/audio)
+  endif()
 endif()

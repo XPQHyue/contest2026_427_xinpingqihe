@@ -65,7 +65,7 @@ HAL_StatusTypeDef HAL_AUDCODEC_Config_ADCPath_Volume(
 #define MIC_SAMPLERATE   16000    /* 采样率 16kHz */
 #define MIC_SAMPLES      1024     /* 每次 read 返回的采样数（16-bit 单声道） */
 #define MIC_BUFSIZE      (MIC_SAMPLES * 2)
-#define MIC_VOLUME       0        /* 麦克风增益（dB，-60~30；0dB 避免环境噪声饱和） */
+#define MIC_VOLUME       30       /* 麦克风增益（dB，-60~30）：板载 MEMS 灵敏，实测 0 dB 时峰仅 ~30 LSB */
 
 /****************************************************************************
  * Private Data
@@ -203,6 +203,15 @@ static int mic_capture(FAR uint8_t *buf, uint32_t size)
 
   g_capture_done = false;
 
+  /* 清掉上一次可能残留的完成信号（DMA 完成回调晚到会多 post 一次，
+   * 会让本次 nxsem_tickwait 立刻返回、读到半截数据；长时间连读后
+   * DMA/编解码器状态会错乱，表现为"频谱页跑几分钟后卡死"）。
+   * 真机复现记录：spec_mic 页连续采样约 5 分钟后卡住。 */
+
+  while (nxsem_trywait(&g_mic_sem) == OK)
+    {
+    }
+
   /* 清除上一次采集遗留的 BUSY 状态，否则 Receive_DMA 会返回 HAL_BUSY */
 
   g_hacodec.State[HAL_AUDCODEC_ADC_CH0] = HAL_AUDCODEC_STATE_READY;
@@ -218,6 +227,13 @@ static int mic_capture(FAR uint8_t *buf, uint32_t size)
   if (ret < 0)
     {
       snerr("ERROR: mic sem wait failed: %d\n", ret);
+
+      /* 超时说明这一轮 DMA 没收到完成中断：把通道彻底停掉再重挂，
+       * 避免残留状态把后续采集一起带坏。 */
+
+      HAL_NVIC_DisableIRQ(AUDCODEC_ADC0_DMA_IRQ);
+      g_hacodec.State[HAL_AUDCODEC_ADC_CH0] = HAL_AUDCODEC_STATE_READY;
+      return ret;
     }
 
   /* 停止 DMA 并清除 State，便于下次重新启动 */

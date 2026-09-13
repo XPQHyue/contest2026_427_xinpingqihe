@@ -169,11 +169,20 @@ static void ui_tile_cb(lv_event_t *e)
 
 static void ui_item_cb(lv_event_t *e)
 {
-  FAR const struct pw_exp_s *it = lv_event_get_user_data(e);
+  /* 只接收“函数指针”本身，不接收指向实验表的指针。
+   *
+   * 背景（真机 bug，2026-09-13 定位）：pw_board_list() 的调用方把实验表
+   * 建在**栈**上（PW_STR() 需要运行期求值，无法做静态初始化）。若把
+   * &items[i] 存进事件回调的 user_data，用户点击时该栈帧早已销毁 ——
+   * 悬空指针使 it->open 变成垃圾值，随即跳到非法地址，表现为
+   * 「从组页点入实验页时整机卡死、随后被看门狗复位」。
+   * 直接传函数指针即可，语义相同且无生命周期问题。 */
 
-  if (it != NULL && it->open != NULL)
+  lv_obj_t *(*open)(void) = lv_event_get_user_data(e);
+
+  if (open != NULL)
     {
-      pw_scr_open(it->open());
+      pw_scr_open(open());
     }
 }
 
@@ -509,7 +518,7 @@ lv_obj_t *pw_board_list(const char *title, lv_color_t accent,
           lv_obj_align(lab, LV_ALIGN_RIGHT_MID, -18, 0);
 
           lv_obj_add_event_cb(row, ui_item_cb, LV_EVENT_CLICKED,
-                              (void *)it);
+                              (void *)it->open);
         }
       else
         {
@@ -554,7 +563,7 @@ static lv_obj_t *ui_acou_open(void)
   {
     { PW_STR(SPEC_TITLE),       PW_STR(EXP_SPECTRUM_DESC), pw_spec_mic_screen },
     { PW_STR(EXP_PITCH_NAME),   PW_STR(EXP_PITCH_DESC),    NULL },
-    { PW_STR(EXP_TONE_NAME),    PW_STR(EXP_TONE_DESC),     NULL },
+    { PW_STR(EXP_TONE_NAME),    PW_STR(EXP_TONE_DESC),     pw_tone_screen },
     { PW_STR(EXP_DOPPLER_NAME), PW_STR(EXP_DOPPLER_DESC),  NULL },
   };
   return pw_board_list(PW_STR(UI_ACOUSTICS), PW_ACC_ACOU,

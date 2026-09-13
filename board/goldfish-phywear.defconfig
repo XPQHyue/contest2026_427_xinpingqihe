@@ -370,7 +370,7 @@ CONFIG_LV_COLOR_DEPTH_32=y
 # 官方 AI Agent 引擎；goldfish 官方参考配置见
 # packages/ai_agent/defconfigs/goldfish-arm64-v8a-ap/
 CONFIG_EXAMPLES_AI_AGENT_VELA=y
-CONFIG_EXAMPLES_AI_AGENT_VELA_DATA_DIR="/data/ai_agent"
+CONFIG_EXAMPLES_AI_AGENT_VELA_DATA_DIR="/data/agent"
 # 最小内存配置（省 ~260KB）：关掉不用的外部通道
 # CONFIG_AI_AGENT_FEISHU is not set
 # CONFIG_AI_AGENT_WEIXIN is not set
