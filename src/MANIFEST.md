@@ -75,6 +75,7 @@
 | `include/tools/tool_phywear.h` | 工具声明 | **本队原创（新增）** |
 | `src/tools/tool_registry.c` | 工具注册表：加入 4 个 PhyWear 工具 | 官方文件 + **本队改动**（+32 行） |
 | `src/core/agent_loop.c` | 关键词直通表加入 PhyWear 意图（无 LLM Key / 断网也可用） | 官方文件 + **本队改动**（+15 行） |
+| `src/tools/skill_loader.c` | **本队修复**：技能摘要/标题/描述按固定字节数截断会把中文切成半截 → 非法 UTF-8 → 云端 `400 Invalid JSON`；新增 `utf8_safe_len()` 按 UTF-8 边界截断 | 官方文件 + **本队改动**（+38 行） |
 | `CMakeLists.txt` / `Makefile` | 把新 .c 加进构建列表 | 官方文件 + **本队改动**（各 +1 行） |
 
 - 上游来源：`git@gitee.com:open-vela/packages_ai_agent`，分支 `dev-ai-contest-2026`
