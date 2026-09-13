@@ -72,6 +72,9 @@ struct pw_ai_light_s
 };
 
 extern int pw_sensors_read_imu(struct pw_ai_imu_s *out);
+/* 在调用者任务里 open/read/close：AI Agent 是独立任务组，不能复用 GUI
+ * 任务缓存的 fd（真机实测会回 accelerometer not available）。 */
+extern int pw_sensors_read_imu_oneshot(struct pw_ai_imu_s *out);
 extern int pw_sensors_read_mag(struct pw_ai_mag_s *out);
 extern int pw_sensors_read_light(struct pw_ai_light_s *out);
 
@@ -301,7 +304,7 @@ int tool_phywear_sensor_execute(const char *input_json, char *output,
       struct pw_ai_imu_s imu;
 
       memset(&imu, 0, sizeof(imu));
-      if (pw_sensors_read_imu(&imu) < 0)
+      if (pw_sensors_read_imu_oneshot(&imu) < 0)
         {
           cJSON_AddStringToObject(r, "error", "accelerometer not available");
           pw_tool_emit(r, output, output_size, ERROR);
@@ -464,7 +467,7 @@ int tool_phywear_run_execute(const char *input_json, char *output,
       struct pw_ai_imu_s imu;
 
       memset(&imu, 0, sizeof(imu));
-      if (pw_sensors_read_imu(&imu) == 0)
+      if (pw_sensors_read_imu_oneshot(&imu) == 0)
         {
           if (samples == 0)
             {

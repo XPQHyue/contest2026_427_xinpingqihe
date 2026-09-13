@@ -94,6 +94,48 @@ static lv_obj_t *ui_tool_open(void);
 static lv_obj_t *ui_time_open(void);
 static lv_obj_t *ui_every_open(void);
 static lv_obj_t *ui_custom_open(void);
+/* 板块图标：自绘小图形（LVGL 图元，不依赖任何字体/图标库）
+ *
+ * 为什么不用 LV_SYMBOL：内置字形里没有"摆/弹簧"也没有"对话气泡"，
+ * 旋转箭头（REFRESH）表达力学与实际不符、信封表达 AI 教练也偏"邮件"。
+ * 这里用最简单的图元拼出语义明确的图形。 */
+
+static lv_obj_t *tile_dot(lv_obj_t *parent, int x, int y, int w, int h,
+                          int radius, lv_color_t c, lv_opa_t opa)
+{
+  lv_obj_t *o = lv_obj_create(parent);
+
+  lv_obj_set_size(o, w, h);
+  lv_obj_set_pos(o, x, y);
+  lv_obj_set_style_bg_color(o, c, 0);
+  lv_obj_set_style_bg_opa(o, opa, 0);
+  lv_obj_set_style_radius(o, radius, 0);
+  lv_obj_set_style_border_width(o, 0, 0);
+  lv_obj_set_style_pad_all(o, 0, 0);
+  lv_obj_remove_flag(o, LV_OBJ_FLAG_SCROLLABLE);
+  return o;
+}
+
+static void tile_draw_icon(lv_obj_t *chip, int kind, lv_color_t c)
+{
+  if (kind == 1)
+    {
+      /* 力学：摆 —— 竖直摆线 + 摆球（一眼看出是单摆/振动，而不是"旋转"） */
+
+      tile_dot(chip, 14, 4, 2, 10, 0, c, LV_OPA_COVER);              /* 摆线 */
+      tile_dot(chip, 11, 14, 9, 9, LV_RADIUS_CIRCLE, c, LV_OPA_COVER); /* 摆球 */
+    }
+  else if (kind == 2)
+    {
+      /* AI 教练：对话气泡 + 三个点（"会说话/会回答"，而不是"邮件"） */
+
+      tile_dot(chip, 4, 5, 22, 15, 7, c, LV_OPA_30);                 /* 气泡 */
+      tile_dot(chip, 10, 11, 4, 4, LV_RADIUS_CIRCLE, c, LV_OPA_COVER);
+      tile_dot(chip, 15, 11, 4, 4, LV_RADIUS_CIRCLE, c, LV_OPA_COVER);
+      tile_dot(chip, 20, 11, 4, 4, LV_RADIUS_CIRCLE, c, LV_OPA_COVER);
+    }
+}
+
 static lv_obj_t *ui_ai_open(void);
 
 /* 设置/语言/关于（phyphox 极简设置思想） */
@@ -114,6 +156,7 @@ struct pw_board_s
   bool        live;                 /* true=白字可进；false=灰字规划中 */
   lv_obj_t *(*open)(void);
   const char *icon;                 /* LV_SYMBOL_* 图标（内置 Montserrat 自带字形） */
+  int         draw;                 /* 0=用 icon 字形；1=自绘摆（力学）；2=自绘对话气泡（AI） */
 };
 
 /* g_boards[] 已改为 pw_ui_root() 内运行时构建（需要 PW_STR()） */
@@ -349,11 +392,6 @@ lv_obj_t *pw_card_new(lv_obj_t *parent, int w, int h, lv_color_t bg)
   lv_obj_set_size(card, w, h);
   lv_obj_set_style_bg_color(card, bg, 0);
 
-  /* 轻微纵向渐变：EPIC 只对 2-stop H/V 渐变硬件加速（圆角/阴影会掉回软件），
-   * 所以"渐变"是这里性价比最高的观感提升手段。 */
-
-  lv_obj_set_style_bg_grad_color(card, lv_color_lighten(bg, 14), 0);
-  lv_obj_set_style_bg_grad_dir(card, LV_GRAD_DIR_VER, 0);
   lv_obj_set_style_border_width(card, 0, 0);
   lv_obj_set_style_radius(card, 14, 0);
   lv_obj_set_style_pad_all(card, 0, 0);
@@ -920,13 +958,13 @@ void pw_ui_root(void)
   const struct pw_board_s boards[] =
   {
     { PW_STR(UI_RAW_SENSORS), PW_STR(UI_RAW_DESC),    0x4fc3f7, true,  pw_raw_screen,  LV_SYMBOL_GPS },
-    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0x81c784, true,  ui_mech_open,  LV_SYMBOL_REFRESH },
+    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0x81c784, true,  ui_mech_open,  NULL, 1 },
     { PW_STR(UI_ACOUSTICS),   PW_STR(UI_ACOU_DESC),   0xffb74d, true,  ui_acou_open,  LV_SYMBOL_AUDIO },
     { PW_STR(UI_TOOLS),       PW_STR(UI_TOOLS_DESC),  0xba68c8, true,  ui_tool_open,  LV_SYMBOL_EDIT },
     { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0x4dd0e1, true,  ui_time_open,  LV_SYMBOL_BELL },
     { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0xff8a65, true,  ui_every_open, LV_SYMBOL_HOME },
     { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0x90a4ae, false, ui_custom_open, LV_SYMBOL_PLUS },
-    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open,    LV_SYMBOL_ENVELOPE },
+    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open,    NULL, 2 },
   };
   const int nboards = sizeof(boards) / sizeof(boards[0]);
   lv_obj_t *scr;
@@ -1003,9 +1041,17 @@ void pw_ui_root(void)
       lv_obj_set_style_pad_all(chip, 0, 0);
       lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
 
-      lab = pw_label_new(chip, b->icon, &lv_font_montserrat_20,
+      if (b->draw != 0)
+        {
+          tile_draw_icon(chip, b->draw,
                          b->live ? lv_color_hex(b->color) : PW_COL_FAINT);
-      lv_obj_center(lab);
+        }
+      else
+        {
+          lab = pw_label_new(chip, b->icon, &lv_font_montserrat_20,
+                             b->live ? lv_color_hex(b->color) : PW_COL_FAINT);
+          lv_obj_center(lab);
+        }
 
       /* 名称 + 状态 */
 
