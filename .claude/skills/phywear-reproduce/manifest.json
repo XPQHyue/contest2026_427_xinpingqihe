@@ -1,13 +1,13 @@
 {
  "schema": 1,
- "generated_at": "2026-09-13 18:15:33",
- "generated_at_epoch": 1789294533,
+ "generated_at": "2026-09-13 23:11:08",
+ "generated_at_epoch": 1789312268,
  "workspace_default": "/home/xpqh/openvela",
  "repo_default": "/home/xpqh/work/contest2026_427_xinpingqihe",
  "stats": {
-  "files": 168,
-  "critical": 92,
-  "bytes": 8247963,
+  "files": 169,
+  "critical": 93,
+  "bytes": 8265066,
   "missing_in_workspace": 0
  },
  "files": [
@@ -746,6 +746,17 @@
    "critical": true,
    "md5": "308dc447364bf1631065984750124cc4",
    "size": 56768,
+   "present": true
+  },
+  {
+   "rule": "aiagent",
+   "rule_desc": "packages/ai_agent（本队新增 4 个 phywear 工具 + 关键词意图 + 构建接线）",
+   "snap": "src/packages/ai_agent/src/tools/skill_loader.c",
+   "dst": "packages/ai_agent/src/tools/skill_loader.c",
+   "compare": "exact",
+   "critical": true,
+   "md5": "fcf9a720477aa0c8c286d3fa161787d7",
+   "size": 17103,
    "present": true
   },
   {

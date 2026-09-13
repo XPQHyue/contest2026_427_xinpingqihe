@@ -75,7 +75,33 @@
 - Agent loop 现在**开机即启动**（官方原逻辑是"网络连通后才启动"，真机永远等不到 → Agent 起来了但"听不见"消息）；
 - 未命中 LLM 时，`agent_loop.c` 的离线意图表按关键词直接执行工具：
   `PhyWear 巡检` / `检测到持续摆动` → `phywear_run_experiment(pendulum, 10s)`；`打开单摆` → `phywear_open_screen(pendulum)`；`读加速度`、`跑单摆实验`、`回到主屏` 同理；
-- LLM 讲解能力在 **goldfish 模拟器**（有 virtio-net + LLM Key）演示。
+- LLM 讲解能力在 **goldfish 模拟器**（有 virtio-net + LLM Key）演示，见下面第 4.1 节。
+
+### 4.1 LLM 后端实测（2026-09-13，模拟器）
+
+| 项 | 值 |
+|---|---|
+| 提供方 / 端点 | 小米 MiMo **Token Plan**（`tp-` 开头密钥）→ `https://token-plan-cn.xiaomimimo.com/v1/chat/completions` |
+| 模型 | `mimo-v2.5-pro` |
+| 配置方式 | 设备内 `set_llm token-plan-cn.xiaomimimo.com mimo-v2.5-pro <key>`（写入 `config_store` → `/data/agent/config/config.json`，`config_show` 里密钥显示为 `tp-c****`） |
+| 实测结果 | 一轮提问：`trace … llm=ok backend=0`，LLM **自主发起 4 次工具调用**（`phywear_list_experiments` → `phywear_open_screen{pendulum}` → `launch_quickapp` → `phywear_run_experiment{pendulum,5s}`），5 轮迭代、端到端 20 s，最后用中文作答 |
+| 证据 | `docs/evidence/llm-20260913/sim-llm-conversation.log`（已脱敏）、`bug-request-invalid-utf8.txt` |
+
+> ⚠️ **注意：MiMo 的 `tp-` 密钥属于 Token Plan，与按量付费的 `sk-` 密钥不通用**，
+> 且必须配 `token-plan-<集群>.xiaomimimo.com` 端点；用 `api.xiaomimimo.com` + `Bearer` 会直接 401。
+> `packages/ai_agent` 自带的 `mimo` 预设指向按量付费端点，Token Plan 需要按上面的自定义 host 方式配置。
+
+### 4.2 顺带修掉的一个真实 Bug：中文内容被按字节截断 → 云端 400
+
+现象：LLM 调用稳定返回 `400 {"message":"Invalid JSON in request body"}`，而同样内容用 curl 从电脑发是 200。
+
+定位：本地起代理抓设备真实请求体，发现**请求体不是合法 UTF-8**——第 3736 字节是 `0xe8`（三字节汉字的
+首字节），后面直接跟了 JSON 的 `\n`。根因是 `skill_loader.c` 组装技能摘要/标题/描述时用
+`snprintf`/`memcpy` **按固定字节数截断**，把中文字符切成了半截；该摘要进入 system prompt 后被
+cJSON 原样写入请求体。（`nginx` 的 `client_body` 之类网关解析失败，于是回 "Invalid JSON"。）
+
+修复：新增 `utf8_safe_len()`，在三处截断点回退到最后一个完整 UTF-8 字符（`src/packages/ai_agent/src/tools/skill_loader.c`）。
+修复后 LLM 路径一次通过。**任何写中文 Skill 的队伍都可能踩到这个坑**，已在我们仓内修复并记录。
 
 ---
 
