@@ -1,13 +1,13 @@
 {
  "schema": 1,
- "generated_at": "2026-09-13 23:11:08",
- "generated_at_epoch": 1789312268,
+ "generated_at": "2026-09-14 00:12:44",
+ "generated_at_epoch": 1789315964,
  "workspace_default": "/home/xpqh/openvela",
  "repo_default": "/home/xpqh/work/contest2026_427_xinpingqihe",
  "stats": {
   "files": 169,
   "critical": 93,
-  "bytes": 8265066,
+  "bytes": 8312590,
   "missing_in_workspace": 0
  },
  "files": [
@@ -51,8 +51,8 @@
    "dst": "apps/examples/phywear/phywear.c",
    "compare": "exact",
    "critical": true,
-   "md5": "ab4522b4f15aa194cad449abaf58d32e",
-   "size": 42492,
+   "md5": "e94df1c664affd43463fb0ac25af14b2",
+   "size": 44283,
    "present": true
   },
   {
@@ -106,8 +106,8 @@
    "dst": "apps/examples/phywear/phywear_i18n_ids.inc",
    "compare": "exact",
    "critical": true,
-   "md5": "305daa5dd6c7af9dcbdbed3b34657204",
-   "size": 6149,
+   "md5": "0f162aa8cd13772be982e3860afbac92",
+   "size": 6429,
    "present": true
   },
   {
@@ -117,8 +117,8 @@
    "dst": "apps/examples/phywear/phywear_i18n_tables.inc",
    "compare": "exact",
    "critical": true,
-   "md5": "b6bea1fb33a7ab953ab58f6b688f787e",
-   "size": 28820,
+   "md5": "5867bac08295670e2374ab3526ebcbb5",
+   "size": 30018,
    "present": true
   },
   {
@@ -337,8 +337,8 @@
    "dst": "apps/examples/phywear/phywear_ui.c",
    "compare": "exact",
    "critical": true,
-   "md5": "8514a1c1c0d3b57bedb7c6a0727867ad",
-   "size": 27685,
+   "md5": "81f9d126ae844fce9c0cb81535a4b1ab",
+   "size": 32089,
    "present": true
   },
   {
@@ -348,8 +348,8 @@
    "dst": "apps/examples/phywear/phywear_ui.h",
    "compare": "exact",
    "critical": true,
-   "md5": "99a822bb51003cbfdaa3eb8486058100",
-   "size": 7791,
+   "md5": "51d12ffed36b80b05b8e2127596e7b67",
+   "size": 7917,
    "present": true
   },
   {
@@ -359,8 +359,8 @@
    "dst": "apps/examples/phywear/pw_ai.c",
    "compare": "exact",
    "critical": true,
-   "md5": "cee3a47636413a04399b6370e92f875b",
-   "size": 4727,
+   "md5": "fc730486322da5e0b5525b55dc2725df",
+   "size": 10296,
    "present": true
   },
   {
@@ -370,8 +370,8 @@
    "dst": "apps/examples/phywear/pw_ai.h",
    "compare": "exact",
    "critical": true,
-   "md5": "3c30b9885c318cbd41758fa88664dddc",
-   "size": 2936,
+   "md5": "622de5c9d3cbf01217af57bc00b13ba2",
+   "size": 4392,
    "present": true
   },
   {
@@ -414,8 +414,8 @@
    "dst": "apps/examples/phywear/pw_font_14.c",
    "compare": "exact",
    "critical": true,
-   "md5": "b6a881d7988a57405a4eb68a8119a718",
-   "size": 407324,
+   "md5": "5f34d7bd33c5bae5605cc7eb313dabaf",
+   "size": 410808,
    "present": true
   },
   {
@@ -425,8 +425,8 @@
    "dst": "apps/examples/phywear/pw_font_16.c",
    "compare": "exact",
    "critical": true,
-   "md5": "85eff2b67726b53dc77494d974e107ed",
-   "size": 488337,
+   "md5": "eeb3a43364145974376a695286e4cf39",
+   "size": 492456,
    "present": true
   },
   {
@@ -436,8 +436,8 @@
    "dst": "apps/examples/phywear/pw_font_20.c",
    "compare": "exact",
    "critical": true,
-   "md5": "82861b097213dfdfe82a893477f901a3",
-   "size": 701726,
+   "md5": "71cea3f02a7a65880cedecb0cfb054f6",
+   "size": 708035,
    "present": true
   },
   {
@@ -447,8 +447,8 @@
    "dst": "apps/examples/phywear/pw_font_24.c",
    "compare": "exact",
    "critical": true,
-   "md5": "482ce456574a7997016d1a626a5dd80d",
-   "size": 936651,
+   "md5": "0260ffe0f41fe5608865916a533b1e33",
+   "size": 944749,
    "present": true
   },
   {
@@ -458,8 +458,8 @@
    "dst": "apps/examples/phywear/pw_font_28.c",
    "compare": "exact",
    "critical": true,
-   "md5": "3ef0425dd3b34e2769b1f47554c203fe",
-   "size": 1232265,
+   "md5": "93cfccf0dd6d8b2f2ea597324ed0089c",
+   "size": 1242955,
    "present": true
   },
   {

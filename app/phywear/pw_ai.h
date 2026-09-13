@@ -70,4 +70,37 @@ void pw_ai_set_gui_running(bool running);
 
 void pw_ai_note_screen(const char *name);
 
+/****************************************************************************
+ * AI 教练页：端侧 Agent 交互 + 消息日志（任意线程可调用）
+ *
+ * 目的：让手表 UI 上"看得见 AI"。按下 AI 教练页的按钮 → 向端侧 Agent 发一条
+ * 自然语言请求（走 agent_loop 的离线意图表 / LLM）→ Agent 调工具（切页、读数、
+ * 跑实验）→ 回复文本回落到消息日志 → 页面周期刷新显示。
+ *
+ * 线程安全：Agent 回复回调运行在其它任务里，只写下面的环形日志（加锁），
+ * 不触碰任何 LVGL 对象；LVGL 更新一律由 GUI 线程的定时器完成。
+ ****************************************************************************/
+
+/* 向端侧 Agent 发一条自然语言请求（非阻塞；回复异步写入消息日志）。
+ * 返回 0 = 已受理；-ENODEV = Agent 未运行/未编入；-EINVAL = 参数错。 */
+
+int pw_ai_ask(const char *text);
+
+/* Agent 上一次请求是否成功送达（用于页面上的状态点）。 */
+
+bool pw_ai_agent_ready(void);
+
+/* 记录一条文本到消息日志（Agent 回复、本地事件都走这里）。 */
+
+void pw_ai_note(const char *text);
+
+/* 消息日志读取（GUI 线程）。idx 0 = 最新一条；越界返回 NULL。 */
+
+int         pw_ai_log_count(void);
+const char *pw_ai_log_line(int idx);
+
+/* 该条消息距今多少秒（-1 表示无该条）。 */
+
+long        pw_ai_log_age_s(int idx);
+
 #endif /* __APPS_EXAMPLES_PHYWEAR_PW_AI_H */

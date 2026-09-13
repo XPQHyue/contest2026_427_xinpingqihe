@@ -178,6 +178,10 @@ lv_obj_t *pw_settings_screen(void);
 
 lv_obj_t *pw_about_screen(void);
 
+/* AI 教练页（端侧 Agent 面板：状态 + 最近回复 + 4 个快捷请求） */
+
+lv_obj_t *pw_ai_coach_screen(void);
+
 /* 构建并加载主菜单根屏（应用启动时调用一次；可重复调用以刷新语言） */
 
 void pw_ui_root(void);
