@@ -308,6 +308,8 @@ PY
 
 ---
 
+> **队内协作模式（2026-09-14）**：主力为 DeepSeek Harness（实现/构建/烧录/真机验证/文档/提交）；Claude Code + 小米 MiMo 在本机以**辅助**身份参与（独立复核、二次校对、产出可入 `logs/` 的日志）。`logs/` 只收白名单工具的真实会话，**禁止为凑数刷日志**；DSH 记录放 `supplementary/dsh-logs/` 并不计工时。项目记忆见根目录 `CLAUDE.md`。
+
 ## 六、自建 Skill
 
 为把「PhyWear 开发流程」沉淀为可复用能力，自建了 Skill：**`phywear-sf32lb52-devloop`**

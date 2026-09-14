@@ -1,7 +1,19 @@
-# PhyWear 交接说明（换电脑继续开发用）
+# PhyWear 交接说明（本机协作 · 附带迁移能力）
 
 > 生成时间：2026-09-14 ｜ 参赛仓：`contest2026_427_xinpingqihe`（官方仓 `open-vela/...`，分支 `dev-ai-contest-2026`）
 > 配套 SKILL：`.claude/skills/phywear-migrate`（环境检测 + 迁移流程）、`.claude/skills/phywear-reproduce`（进度检测 + 代码恢复）
+
+## 零、分工与工作方式（2026-09-14 队内决定）
+
+| 角色 | 谁 | 职责 |
+|---|---|---|
+| **主力** | DeepSeek Harness（DSH） | 实现、驱动/BSP、构建、烧录、真机验证、文档、证据、提交 |
+| **辅助** | Claude Code + 小米 MiMo（**本机**） | ①独立复核 DSH 改动 ②产出可入 `logs/` 的 AI Coding 日志 ③文档/脚本二次校对 |
+
+- **不迁移到新电脑**：MiMo 留在本机辅助；本 SKILL 的迁移能力（check_env / restore_code / make_bundle）
+  作为**备份与可复现性**保留，需要换机时仍可一键迁移。
+- **禁止刷日志**：只为真实任务开会话；`logs/` 必须是真实工作记录。
+- 项目记忆：`CLAUDE.md`（仓库根，Claude Code 自动读取）、`~/openvela/CLAUDE.md`、本文件。
 
 ## 一、当前进度快照（可核对）
 
