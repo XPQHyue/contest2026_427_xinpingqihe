@@ -13,6 +13,8 @@
 - **不再迁移到新电脑**（原"换机器"计划作废）：MiMo 留在**本机**，以辅助身份参与。
 - **禁止刷日志**：只为**真实任务**开会话。`logs/` 必须反映真实工作，不许为凑数跑无意义会话——评审会看内容，造假扣分。
 - 涉及改代码 / 编译 / 烧录 / 摸板子的活归 DSH；MiMo 以**审核 + 校对 + 取证**为主，除非队长明确指定。
+- **提交策略（2026-09-14 队长决定）**：**平时只提交到本地仓库**（`submit_427.sh --execute` 默认就是本地提交、不推送）；
+  **等作品全部完结再一次性推送远端**（`--push`），避免提交太多次浪费时间。查看待推送：`submit_427.sh --status`。
 
 ## 1. 当前状态（截至 2026-09-14 23:5x，改动后请更新）
 
@@ -30,7 +32,7 @@
 
 ## 2. 铁律（违反 = 停止并报告，不许绕过）
 
-1. **提交只走脚本**：`bash .claude/skills/phywear-submit/submit_427.sh`（默认演练，确认后 `--execute`）。不许手敲 `git push`、不许 force-push 官方仓。细则见 `phywear-submit/SKILL.md` 的 S1–S14。
+1. **提交只走脚本**：`bash .claude/skills/phywear-submit/submit_427.sh`（默认演练；`--execute` = **只提交本地**；`--push` = 额外推远端，**仅在里程碑/作品完结时**）。不许手敲 `git push`、不许 force-push 官方仓。细则见 `phywear-submit/SKILL.md` 的 S1–S15。
 2. **串口铁律**：`pyserial` 打开后立刻 `dtr=False; rts=False`；`picocom` 必须 `--noreset --lower-rts --lower-dtr`；`/dev/ttyUSB0` **独占**；**禁止 `erase_flash`**；**一个 boot 只跑一个 `phywear` GUI**。
 3. **密钥不入库**：MiMo Key 只在 `~/.config/phywear/mimo.key`（600）；`tp-`/`sk-`/`ghp_` 出现在提交里 = 直接中止。
 4. **构建产物不入库**：`cmake_out/`、`nuttx.bin`、`*.o/*.a`、`.zip`；唯一允许的二进制是 `board/ftab_openvela.bin`。
@@ -57,7 +59,8 @@ bash .claude/skills/phywear-migrate/finish_session.sh
 python3 .claude/skills/phywear-migrate/check_env.py          # 本机环境检测
 python3 .claude/skills/phywear-reproduce/check_progress.py   # 进度/一致性 P0–P7（P2 = 快照↔工作区）
 python3 .claude/skills/phywear-reproduce/sync_back.py        # 工作区 → 参赛仓 快照回写（先演练）
-bash    .claude/skills/phywear-submit/submit_427.sh          # 提交（唯一入口，默认演练）
+bash    .claude/skills/phywear-submit/submit_427.sh          # 提交（唯一入口：演练 / --execute 只本地 / --push 推远端）
+bash    .claude/skills/phywear-submit/submit_427.sh --status # 看本地攒了多少个待推送提交
 bash    .claude/skills/phywear-migrate/make_rollback.sh      # 打新回退点
 bash    .claude/skills/phywear-migrate/rollback.sh --check    # 与回退点比对
 ```

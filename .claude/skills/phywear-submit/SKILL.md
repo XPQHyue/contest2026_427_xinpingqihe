@@ -11,7 +11,7 @@ description: 把 PhyWear 的改动**严格按流程**提交到 427 参赛仓（c
 
 | # | 铁律 |
 |---|---|
-| S1 | **只跑脚本**：提交一律 `bash submit_427.sh`（默认演练；确认后 `--execute`）。手敲 git 命令只允许用于**查看**（status/log/ls-remote）。 |
+| S1 | **只跑脚本**：提交一律 `bash submit_427.sh`。**默认演练；`--execute` = 只提交本地仓库；`--push` = 额外推远端（仅里程碑/作品完结时用）**。手敲 git 只允许**查看**（status/log/ls-remote）。 |
 | S2 | **绝不 force-push 官方仓**（`open-vela/*`）。只有我们的 fork 默认分支允许 `--force-with-lease`，且必须先自动建备份分支。 |
 | S3 | **绝不提交密钥**：`tp-…`/`sk-…`/`ghp_…`/`github_pat_…` 一律禁止入库；MiMo Key 只放 `~/.config/phywear/mimo.key`（600）。预检命中即中止。 |
 | S4 | **绝不提交构建产物**：`cmake_out/`、`nuttx.bin`、`*.o/*.a`、迁移包 `.zip` 一律不提交。**唯一允许的二进制**是 `board/ftab_openvela.bin`（烧录必需）。 |
@@ -23,6 +23,7 @@ description: 把 PhyWear 的改动**严格按流程**提交到 427 参赛仓（c
 | S10 | **推送后必须核对远端**：脚本会比对本地 HEAD 与远端两个 ref 的 SHA，不一致就报失败；**不许口头声称"已推送"**。 |
 | S11 | **默认分支必须同步**：每次推送都把 fork 的 `dev-ai-contest-2026` 指到同一次提交（用户要求"最新的提交到我的默认分支"）。 |
 | S12 | **日志单独交付**：AI Coding 日志是独立 10 分维度，工作时段结束必须跑 `phywear-migrate/finish_session.sh`。 |
+| S15 | **平时不推送**（队长决定）：只 `--execute` 提交本地，攒到作品完结再 `--push` 一次性推；推送前务必先按 S14 rebase 到官方最新 |
 | S14 | **PR 合并后先 rebase 再继续**：rebase-merge 改写 SHA；本地带旧提交会产生「重复提交 + 冲突」（`dirty`）。先 `git fetch origin`，再 `git rebase --onto origin/dev-ai-contest-2026 <上次已合并的最后一个提交>` |
 | S13 | **改动固件必须更新文档**：烧录后把新 md5/大小/复验结果写进 `docs/06` 与 `docs/07`，再提交。 |
 
@@ -31,10 +32,11 @@ description: 把 PhyWear 的改动**严格按流程**提交到 427 参赛仓（c
 ```bash
 cd <参赛仓>                                   # 默认 ~/work/contest2026_427_xinpingqihe
 
-bash .claude/skills/phywear-submit/submit_427.sh            # ① 演练：回写+清单+预检，全部只打印
-#   看输出确认无误（应显示：回写 N 个、P2 全绿、无红线命中、将推送到哪两个 ref）
-
-bash .claude/skills/phywear-submit/submit_427.sh --execute -m "feat(phywear): 你的改动说明"
+bash .claude/skills/phywear-submit/submit_427.sh              # ① 演练（只打印）
+bash .claude/skills/phywear-submit/submit_427.sh --status      # ② 看本地攒了多少待推送提交
+bash .claude/skills/phywear-submit/submit_427.sh --execute -m "feat(phywear): 说明"   # ③ **只提交本地**（日常）
+# 只在里程碑/作品完结时：先 git fetch + rebase 到官方最新（S14），再
+# bash .claude/skills/phywear-submit/submit_427.sh --execute --push -m "release: 完结提交"
 ```
 
 脚本按顺序做这些事（每一步失败即中止）：

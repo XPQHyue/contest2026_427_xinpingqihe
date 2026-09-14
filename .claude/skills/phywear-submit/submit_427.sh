@@ -1,9 +1,11 @@
 #!/bin/bash
 # 提交 427 参赛仓 —— 唯一允许的提交入口（严格流程 + 红线预检）。
 #
-#   bash submit_427.sh                          # 演练（默认，不落盘/不推送）
-#   bash submit_427.sh --execute -m "feat: …"   # 真提交并推送（含同步默认分支）
-#   bash submit_427.sh --no-default             # 只推工作分支，不动默认分支
+#   bash submit_427.sh                              # 演练（不落盘）
+#   bash submit_427.sh --execute -m "feat: …"       # **只提交到本地仓库**（默认；不推送）
+#   bash submit_427.sh --status                     # 看本地待推送的提交（不提交、不推送）
+#   bash submit_427.sh --execute --push -m "…"      # 额外推送远端（**只在里程碑/作品完结时用**）
+#   bash submit_427.sh --execute --push --no-default -m "…"   # 推工作分支但不动默认分支
 #   BRANCH=xxx bash submit_427.sh --execute     # 指定工作分支（默认 dev-ai-contest-2026，即合并后的主线）
 #
 # 顺序：回写快照 → 重生成清单 → P2 核对 → Skill blob 校验 → 红线预检 → 提交
@@ -17,11 +19,13 @@ BRANCH="${BRANCH:-dev-ai-contest-2026}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-dev-ai-contest-2026}"
 FORK_REMOTE="${FORK_REMOTE:-fork}"
 AUTHOR_NAME="XPQHyue"; AUTHOR_EMAIL="15770782523@163.com"
-MSG=""; EXECUTE=0; SYNC_DEFAULT=1; MAX_MB=5
+MSG=""; EXECUTE=0; SYNC_DEFAULT=1; MAX_MB=5; PUSH=0; STATUS_ONLY=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
     --execute) EXECUTE=1 ;;
+    --push) PUSH=1 ;;
+    --status) STATUS_ONLY=1 ;;
     --no-default) SYNC_DEFAULT=0 ;;
     -m) shift; MSG="${1:-}" ;;
     *) echo "未知参数：$1"; exit 2 ;;
@@ -35,6 +39,21 @@ die(){ printf '\n❌ 中止：%s\n' "$*"; exit 1; }
 
 [ -d "$REPO/.git" ] || die "参赛仓不存在：$REPO"
 cd "$REPO" || exit 1
+
+# ── 只查看待推送提交 ────────────────────────────────────────
+if [ "$STATUS_ONLY" = 1 ]; then
+  step "本地待推送提交（相对远端 $FORK_REMOTE/$BRANCH）"
+  if git rev-parse --verify -q "origin/$DEFAULT_BRANCH" >/dev/null; then
+    N=$(git rev-list --count "origin/$DEFAULT_BRANCH"..HEAD)
+    say "  本地领先官方 $DEFAULT_BRANCH：$N 个提交"
+    git log --oneline "origin/$DEFAULT_BRANCH"..HEAD | sed 's/^/    /'
+    say ""
+    say "  （按队内规则：**平时只提交到本地**，等作品完结再 --push 一次性推送）"
+  else
+    say "  （缺 origin/$DEFAULT_BRANCH 引用，先 git fetch origin）"
+  fi
+  exit 0
+fi
 TODAY="$(date +%Y%m%d)"
 MODE=$([ "$EXECUTE" = 1 ] && echo "执行" || echo "演练（不落盘、不推送）")
 step "0/9 提交 427 参赛仓 —— $MODE ｜ 分支 $BRANCH ｜ 默认分支 $DEFAULT_BRANCH"
@@ -43,7 +62,7 @@ say "工作区：$WS"
 
 # ── 1 回写快照 ───────────────────────────────────────────────
 step "0b/9 与官方分支的关系自检（rebase-merge 后必须先 rebase，见 S14）"
-if git rev-parse --verify -q origin/dev-ai-contest-2026 >/dev/null; then
+if [ "$PUSH" = 1 ] && git rev-parse --verify -q origin/dev-ai-contest-2026 >/dev/null; then
   if git merge-base --is-ancestor origin/dev-ai-contest-2026 HEAD; then
     say "  ✅ 本地已包含官方 dev-ai-contest-2026"
   else
@@ -143,7 +162,23 @@ else
 fi
 HEAD_SHA="$(git rev-parse HEAD)"
 say "本地 HEAD：${HEAD_SHA:0:12}"
-[ "$EXECUTE" = 0 ] && { say "\n（演练结束；确认后加 --execute 真提交并推送）"; exit 0; }
+[ "$EXECUTE" = 0 ] && { say "\n（演练结束；确认后加 --execute 提交到本地）"; exit 0; }
+
+if [ "$PUSH" != 1 ]; then
+  N=$(git rev-list --count "origin/$DEFAULT_BRANCH"..HEAD 2>/dev/null || echo "?")
+  cat <<EOF
+
+──────────────────────────────────────────────
+✅ 已提交到**本地仓库**（按队内规则，平时不推送）
+  · 本地领先官方 $DEFAULT_BRANCH：$N 个提交
+  · 查看：bash .claude/skills/phywear-submit/submit_427.sh --status
+  · **等作品完结再一次性推送**：bash .claude/skills/phywear-submit/submit_427.sh --execute --push -m "…"
+  · 回退点/迁移包：bash .claude/skills/phywear-migrate/{make_rollback,make_bundle}.sh
+别忘了（独立 10 分维度）：bash .claude/skills/phywear-migrate/finish_session.sh
+──────────────────────────────────────────────
+EOF
+  exit 0
+fi
 
 # ── 7 推工作分支 ────────────────────────────────────────────
 step "7/9 推送工作分支 → $FORK_REMOTE/$BRANCH"
