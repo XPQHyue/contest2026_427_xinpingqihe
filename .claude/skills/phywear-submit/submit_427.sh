@@ -42,6 +42,19 @@ say "仓库：$REPO"
 say "工作区：$WS"
 
 # ── 1 回写快照 ───────────────────────────────────────────────
+step "0b/9 与官方分支的关系自检（rebase-merge 后必须先 rebase，见 S14）"
+if git rev-parse --verify -q origin/dev-ai-contest-2026 >/dev/null; then
+  if git merge-base --is-ancestor origin/dev-ai-contest-2026 HEAD; then
+    say "  ✅ 本地已包含官方 dev-ai-contest-2026"
+  else
+    say "  ⚠️ 本地不包含官方最新提交 —— 直接推送会让 PR 显示重复提交/冲突"
+    say "     先执行：git fetch origin && git rebase --onto origin/dev-ai-contest-2026 <上次已合并的最后一个提交>"
+    [ "${FORCE_SUBMIT:-0}" = "1" ] || die "请先 rebase（如确要强行提交：FORCE_SUBMIT=1）"
+  fi
+else
+  say "  （缺少 origin/dev-ai-contest-2026 引用，建议先 git fetch origin）"
+fi
+
 step "1/9 工作区 → 参赛仓 快照回写（sync_back.py）"
 if [ "$EXECUTE" = 1 ]; then
   python3 .claude/skills/phywear-reproduce/sync_back.py --execute --workspace "$WS" --repo "$REPO" || die "回写失败"

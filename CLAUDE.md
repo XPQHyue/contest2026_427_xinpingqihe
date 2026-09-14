@@ -14,23 +14,23 @@
 - **禁止刷日志**：只为**真实任务**开会话。`logs/` 必须反映真实工作，不许为凑数跑无意义会话——评审会看内容，造假扣分。
 - 涉及改代码 / 编译 / 烧录 / 摸板子的活归 DSH；MiMo 以**审核 + 校对 + 取证**为主，除非队长明确指定。
 
-## 1. 当前状态（每次改动后请同步更新本节）
+## 1. 当前状态（截至 2026-09-14 23:5x，改动后请更新）
 
 | 项 | 值 |
 |---|---|
 | 参赛仓 / 分支 | `contest2026_427_xinpingqihe` / `dev-ai-contest-2026` |
-| 本地 HEAD = fork 默认分支 | `0b2dd6bee070`（DSH 侧） |
-| 官方仓分支 | `9406ed0a6230`（**PR #13 未合并前不含最新**，报告里要如实说明） |
-| 待合并 PR | **#13**（回退点机制 + 2026-09-14 交接日志 + 报告口径同步，4 提交，需 rebase merge） |
+| 官方仓分支 | `a83ad3e686d1`（PR #13 已合并；**PR #14 未合并前不含 PR #14 的内容**，报告里要如实说明） |
+| 待合并 PR | **#14**（MiMo 的 JUDGES.md + 协作记忆 + 打包修复 + 规则 S14；`mergeable=true`，rebase merge） |
+| 本地 / fork 默认分支 | 与官方同步 + PR #14 的 6 个提交（SHA 以 `git log -1` 为准） |
 | 真机固件 | 板上 `eb13cf4ba9aea4ee9ba7d4fcf0f77383`（2,056,576 B）；已构建待烧 `484b64ca2e9cd157a191f8ea7d022f9a`（含 Skill 输出规范 5,165 B） |
 | AI 日志 | `logs/XPQHyue/` **50 会话 / 15,283 事件**，`validate-log.py` ✅ ALL OK |
-| 回退点 | `~/桌面/PhyWear-rollback-20260914-2335/`（tag `phywear-handover-20260914-2335`） |
+| 回退点 | `~/桌面/PhyWear-rollback-20260914-2350/`（`rollback.sh --check` 可核对） |
 | 迁移包 | `~/桌面/PhyWear-migrate-20260914.zip` |
-| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；串口 `/dev/ttyUSB0` @1000000 8N1 |
+| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；串口 `/dev/ttyUSB0` @1000000 8N1（当前**未插**） |
 
 ## 2. 铁律（违反 = 停止并报告，不许绕过）
 
-1. **提交只走脚本**：`bash .claude/skills/phywear-submit/submit_427.sh`（默认演练，确认后 `--execute`）。不许手敲 `git push`、不许 force-push 官方仓。细则见 `phywear-submit/SKILL.md` 的 S1–S13。
+1. **提交只走脚本**：`bash .claude/skills/phywear-submit/submit_427.sh`（默认演练，确认后 `--execute`）。不许手敲 `git push`、不许 force-push 官方仓。细则见 `phywear-submit/SKILL.md` 的 S1–S14。
 2. **串口铁律**：`pyserial` 打开后立刻 `dtr=False; rts=False`；`picocom` 必须 `--noreset --lower-rts --lower-dtr`；`/dev/ttyUSB0` **独占**；**禁止 `erase_flash`**；**一个 boot 只跑一个 `phywear` GUI**。
 3. **密钥不入库**：MiMo Key 只在 `~/.config/phywear/mimo.key`（600）；`tp-`/`sk-`/`ghp_` 出现在提交里 = 直接中止。
 4. **构建产物不入库**：`cmake_out/`、`nuttx.bin`、`*.o/*.a`、`.zip`；唯一允许的二进制是 `board/ftab_openvela.bin`。
