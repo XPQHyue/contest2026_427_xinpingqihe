@@ -1,14 +1,14 @@
 {
  "schema": 1,
- "generated_at": "2026-09-14 12:27:21",
- "generated_at_epoch": 1789360041,
+ "generated_at": "2026-09-14 12:33:58",
+ "generated_at_epoch": 1789360438,
  "workspace_default": "/home/xpqh/openvela",
  "repo_default": "/home/xpqh/work/contest2026_427_xinpingqihe",
  "stats": {
-  "files": 170,
-  "critical": 94,
-  "bytes": 8320989,
-  "missing_in_workspace": 0
+  "files": 171,
+  "critical": 95,
+  "bytes": 8331959,
+  "missing_in_workspace": 1
  },
  "files": [
   {
@@ -568,8 +568,8 @@
    "dst": "apps/examples/phywear/pw_skill_blob.c",
    "compare": "exact",
    "critical": true,
-   "md5": "a5ca4ee982b7cd36e5f907b39a05dd38",
-   "size": 13082,
+   "md5": "5c9be0eb3e466c3bde1b6bf8c48aafa9",
+   "size": 18217,
    "present": true
   },
   {
@@ -623,8 +623,8 @@
    "dst": "apps/examples/phywear/skills/phywear-physics-coach.md",
    "compare": "exact",
    "critical": true,
-   "md5": "7097e9fe8d0a496fca2a81dcbaa45e66",
-   "size": 3779,
+   "md5": "1ef5d62d6054f7f2b4432bf6c1830aa7",
+   "size": 5165,
    "present": true
   },
   {
@@ -879,6 +879,17 @@
    "md5": "f7cfeff8433857b701ab8c5f241f081d",
    "size": 19064,
    "present": true
+  },
+  {
+   "rule": "tools",
+   "rule_desc": "主机侧脚本（真机自检 / 截图 / 证据生成）",
+   "snap": "tools/phywear/make_report_docx.py",
+   "dst": "tools/phywear/phywear/make_report_docx.py",
+   "compare": "exact",
+   "critical": true,
+   "md5": "57394ef08066f34d9049eb4d4ed9d048",
+   "size": 4449,
+   "present": false
   },
   {
    "rule": "tools",
