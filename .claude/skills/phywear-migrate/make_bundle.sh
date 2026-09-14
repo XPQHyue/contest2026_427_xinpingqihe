@@ -34,7 +34,8 @@ git -C "$REPO" bundle create "$ROOT/repo.bundle" --all >/dev/null 2>&1 && \
   echo "   ✅ repo.bundle $(du -h "$ROOT/repo.bundle" | cut -f1)" || echo "   ⚠️ bundle 失败（不致命）"
 
 echo "== 3/6 SKILL 独立副本 =="
-cp -a "$REPO/.claude/skills/phywear-migrate" "$REPO/.claude/skills/phywear-reproduce" "$ROOT/skills/"
+cp -a "$REPO/.claude/skills/phywear-migrate" "$REPO/.claude/skills/phywear-reproduce" \
+      "$REPO/.claude/skills/phywear-submit" "$ROOT/skills/"
 
 echo "== 4/6 密钥 =="
 if [ "$WITH_KEY" = "1" ] && [ -f "$KEY" ]; then
@@ -84,6 +85,9 @@ python3 project/.claude/skills/phywear-reproduce/restore_code.py --execute
 python3 project/.claude/skills/phywear-reproduce/check_progress.py        # P0–P7 应全绿
 cp project/board/{ftab_openvela.bin,flash_with_ftab.sh} ~/openvela/       # 烧录所需
 ```
+
+提交只能走这一个入口（含红线预检 + 默认分支同步 + 远端校验）：
+`bash project/.claude/skills/phywear-submit/submit_427.sh --execute -m "feat: …"`
 
 然后在 `~/openvela` 里启动 Claude Code 继续开发（SKILL 见 `project/.claude/skills/`），
 每个工作时段结束运行：`bash project/.claude/skills/phywear-migrate/finish_session.sh`。
