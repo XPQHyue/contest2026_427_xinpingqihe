@@ -1,13 +1,13 @@
 {
  "schema": 1,
- "generated_at": "2026-09-14 23:43:18",
- "generated_at_epoch": 1789400598,
+ "generated_at": "2026-09-14 23:44:52",
+ "generated_at_epoch": 1789400692,
  "workspace_default": "/home/xpqh/openvela",
  "repo_default": "/home/xpqh/work/contest2026_427_xinpingqihe",
  "stats": {
-  "files": 171,
-  "critical": 95,
-  "bytes": 8332345,
+  "files": 172,
+  "critical": 96,
+  "bytes": 8336641,
   "missing_in_workspace": 0
  },
  "files": [
@@ -878,6 +878,17 @@
    "critical": true,
    "md5": "3061fb3413a5a58b3cfe560904a7ce70",
    "size": 4835,
+   "present": true
+  },
+  {
+   "rule": "tools",
+   "rule_desc": "主机侧脚本（真机自检 / 截图 / 证据生成）",
+   "snap": "tools/make_submission_zip.py",
+   "dst": "tools/phywear/make_submission_zip.py",
+   "compare": "exact",
+   "critical": true,
+   "md5": "90d4d4857d6ce7bbfc08065eeeace07f",
+   "size": 4296,
    "present": true
   },
   {

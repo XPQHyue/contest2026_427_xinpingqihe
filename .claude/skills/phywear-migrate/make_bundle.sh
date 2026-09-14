@@ -129,7 +129,21 @@ EOF
 
 echo "== 6/6 打包 =="
 mkdir -p "$(dirname "$OUT")"
-( cd "$STAGE" && zip -qr "$OUT" "PhyWear-migrate-$DATE" )
+# 用 Python zipfile 打包：它会为非 ASCII 文件名设置 UTF-8 标志位（zip 命令在本机不设），
+# 否则换一台机器/Windows 解压时中文文件名会变成乱码。
+python3 - "$STAGE" "PhyWear-migrate-$DATE" "$OUT" <<'PYZIP'
+import os, sys, zipfile, pathlib
+stage, top, out = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+out_p = pathlib.Path(out)
+if out_p.exists():
+    out_p.unlink()
+with zipfile.ZipFile(out_p, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+    for root, dirs, files in os.walk(stage / top):
+        for f in files:
+            full = pathlib.Path(root) / f
+            z.write(full, full.relative_to(stage).as_posix())
+print(f"  zip 条目数: {len(zipfile.ZipFile(out_p).namelist())}")
+PYZIP
 rm -rf "$STAGE"
 echo
 echo "✅ 迁移包：$OUT  ($(du -h "$OUT" | cut -f1))"
