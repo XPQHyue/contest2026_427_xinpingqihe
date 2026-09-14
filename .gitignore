@@ -16,6 +16,8 @@ cmake_out/
 *.hex
 *.map
 *.bin
+# 例外：烧录必需 —— ROM 先读 0x12000000 的 FlashTable，缺了板子只会打印 SFBL
+!board/ftab_openvela.bin
 *.img
 *.dfu
 

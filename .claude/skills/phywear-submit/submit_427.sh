@@ -4,7 +4,7 @@
 #   bash submit_427.sh                          # 演练（默认，不落盘/不推送）
 #   bash submit_427.sh --execute -m "feat: …"   # 真提交并推送（含同步默认分支）
 #   bash submit_427.sh --no-default             # 只推工作分支，不动默认分支
-#   BRANCH=xxx bash submit_427.sh --execute     # 指定工作分支（默认 docs-consolidate-20260913）
+#   BRANCH=xxx bash submit_427.sh --execute     # 指定工作分支（默认 dev-ai-contest-2026，即合并后的主线）
 #
 # 顺序：回写快照 → 重生成清单 → P2 核对 → Skill blob 校验 → 红线预检 → 提交
 #       → 推工作分支 → 备份并同步默认分支 → 远端 SHA 校验 → 打印 PR 信息
@@ -13,7 +13,7 @@ set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="${REPO:-$HOME/work/contest2026_427_xinpingqihe}"
 WS="${PHYWEAR_WS:-$HOME/openvela}"
-BRANCH="${BRANCH:-docs-consolidate-20260913}"
+BRANCH="${BRANCH:-dev-ai-contest-2026}"
 DEFAULT_BRANCH="${DEFAULT_BRANCH:-dev-ai-contest-2026}"
 FORK_REMOTE="${FORK_REMOTE:-fork}"
 AUTHOR_NAME="XPQHyue"; AUTHOR_EMAIL="15770782523@163.com"
@@ -80,6 +80,13 @@ fi
 # ── 5 红线预检 ──────────────────────────────────────────────
 step "5/9 红线预检（密钥 / 禁止路径 / 大文件）"
 git add -A
+# 关键交付物可能被 .gitignore 命中（如 *.bin），必须强制跟踪并校验
+if [ -f board/ftab_openvela.bin ]; then git add -f board/ftab_openvela.bin; fi
+for must in board/ftab_openvela.bin; do
+  if [ -f "$must" ] && ! git ls-files --error-unmatch "$must" >/dev/null 2>&1; then
+    die "关键交付物未被 git 跟踪（检查 .gitignore）：$must"
+  fi
+done
 STAGED="$(git diff --cached --name-only)"
 [ -z "$STAGED" ] && say "（没有暂存改动）"
 FAIL=0
