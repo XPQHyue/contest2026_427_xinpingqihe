@@ -23,6 +23,7 @@ description: 把 PhyWear 的改动**严格按流程**提交到 427 参赛仓（c
 | S10 | **推送后必须核对远端**：脚本会比对本地 HEAD 与远端两个 ref 的 SHA，不一致就报失败；**不许口头声称"已推送"**。 |
 | S11 | **默认分支必须同步**：每次推送都把 fork 的 `dev-ai-contest-2026` 指到同一次提交（用户要求"最新的提交到我的默认分支"）。 |
 | S12 | **日志单独交付**：AI Coding 日志是独立 10 分维度，工作时段结束必须跑 `phywear-migrate/finish_session.sh`。 |
+| S14 | **PR 合并后先 rebase 再继续**：rebase-merge 改写 SHA；本地带旧提交会产生「重复提交 + 冲突」（`dirty`）。先 `git fetch origin`，再 `git rebase --onto origin/dev-ai-contest-2026 <上次已合并的最后一个提交>` |
 | S13 | **改动固件必须更新文档**：烧录后把新 md5/大小/复验结果写进 `docs/06` 与 `docs/07`，再提交。 |
 
 ## 1. 正常提交流程（照着做，不要跳步）
