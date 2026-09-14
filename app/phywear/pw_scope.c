@@ -129,6 +129,38 @@ static inline void put_px(struct pw_scope_s *s, int x, int y, uint16_t c)
     }
 }
 
+/* 由 lv_image 对象反查内部槽位（未占用/未命中返回 NULL） */
+
+static struct pw_scope_s *scope_find(lv_obj_t *img)
+{
+  int i;
+
+  for (i = 0; i < PW_SCOPE_MAX; i++)
+    {
+      if (g_scope[i].used && g_scope[i].img == img)
+        {
+          return &g_scope[i];
+        }
+    }
+
+  return NULL;
+}
+
+/* 背景提亮一档：未显式设置轴线颜色时用作泳道分隔线 */
+
+static inline uint16_t lift565(uint16_t c)
+{
+  uint16_t r = (c >> 11) & 0x1f;
+  uint16_t g = (c >> 5) & 0x3f;
+  uint16_t b = c & 0x1f;
+
+  r = (r + 7 > 0x1f) ? 0x1f : (uint16_t)(r + 7);
+  g = (g + 14 > 0x3f) ? 0x3f : (uint16_t)(g + 14);
+  b = (b + 7 > 0x1f) ? 0x1f : (uint16_t)(b + 7);
+
+  return (uint16_t)((r << 11) | (g << 5) | b);
+}
+
 static void draw_axes(struct pw_scope_s *s)
 {
   int x;
@@ -440,4 +472,106 @@ void pw_scope_axes(lv_obj_t *scope, lv_color_t color)
 
   s->axis = rgb565(color);
   s->has_axes = true;
+}
+
+void pw_scope_set_lanes_i16(lv_obj_t *scope, FAR const int16_t *hist,
+                            int nser, int n, float inv,
+                            FAR const lv_color_t *colors)
+{
+  struct pw_scope_s *s = scope_find(scope);
+  uint16_t grid;
+  uint32_t px;
+  int lane_h;
+  int i;
+  int k;
+
+  if (s == NULL || hist == NULL || colors == NULL ||
+      nser <= 0 || nser > 8 || n < 2)
+    {
+      return;
+    }
+
+  if (inv <= 0.0f)
+    {
+      inv = 1.0f;
+    }
+
+  px = (uint32_t)s->w * (uint32_t)s->h;
+  for (i = 0; i < (int)px; i++)
+    {
+      s->buf[i] = s->bg;
+    }
+
+  grid = s->has_axes ? s->axis : lift565(s->bg);
+  lane_h = s->h / nser;
+
+  for (i = 0; i < nser; i++)
+    {
+      FAR const int16_t *row = hist + (size_t)i * (size_t)n;
+      uint16_t c = rgb565(colors[i]);
+      int top = i * lane_h;
+      int bot = (i == nser - 1) ? s->h : top + lane_h;
+      int lh = bot - top;
+      int x0 = 0;
+      int y0 = 0;
+
+      /* 泳道之间的分隔线 */
+
+      if (i > 0)
+        {
+          for (k = 0; k < s->w; k++)
+            {
+              put_px(s, k, top, grid);
+            }
+        }
+
+      for (k = 0; k < n; k++)
+        {
+          float v = (float)row[k] * inv;
+          /* 横向量程留出外框两列（1..w-2），否则最新样本会被外框盖掉 */
+          int xi = 1 + k * (s->w - 3) / (n - 1);
+          int yi;
+
+          if (v > 1.0f)
+            {
+              v = 1.0f;
+            }
+          else if (v < -1.0f)
+            {
+              v = -1.0f;
+            }
+
+          /* 泳道内留 5% 上下边距，曲线不贴分隔线 */
+
+          yi = top + (int)((0.5f - v * 0.45f) * (lh - 1) + 0.5f);
+
+          if (k == 0)
+            {
+              x0 = xi;
+              y0 = yi;
+            }
+          else
+            {
+              draw_line(s, x0, y0, xi, yi, c);
+              x0 = xi;
+              y0 = yi;
+            }
+        }
+    }
+
+  /* 外框（1px），最后画以裁掉溢出像素 */
+
+  for (k = 0; k < s->w; k++)
+    {
+      put_px(s, k, 0, grid);
+      put_px(s, k, s->h - 1, grid);
+    }
+
+  for (k = 0; k < s->h; k++)
+    {
+      put_px(s, 0, k, grid);
+      put_px(s, s->w - 1, k, grid);
+    }
+
+  lv_obj_invalidate(s->img);
 }

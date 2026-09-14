@@ -25,12 +25,12 @@
 | 本地领先官方 | 8 个提交攒在本地（`submit_427.sh --status` 可看） |
 | 官方仓分支 | `a83ad3e686d1`（PR #11/#12/#13 已合并） |
 | 待合并 PR | **#14**（已推送、`mergeable=true/clean`、7 提交：MiMo 的 JUDGES.md + 协作记忆 + 打包修复 + 规则 S14）；按新策略可留到完结一起合 |
-| 下一步任务 | **UI 第二批**：原始传感器 6 页加迷你实时曲线、倾角页指针盘、秒表环形进度（复用 `pw_scope`，零新增 SRAM） |
-| 真机固件 | 板上 `eb13cf4ba9aea4ee9ba7d4fcf0f77383`（2,056,576 B）；已构建待烧 `484b64ca2e9cd157a191f8ea7d022f9a`（含 Skill 输出规范 5,165 B） |
+| 下一步任务 | **UI 第二批**：(a) 原始传感器三轴页迷你曲线 **已完成 + 真机复验**（见 `docs/evidence/ui-batch2-20260915/`）；**(b) 倾角页指针盘 / (c) 秒表环形进度 等用户确认观感后再做** |
+| 真机固件 | 板上 `032d9162618b24c54f6f489e8500edd1`（**2,059,928 B**，flash 12.28%；SRAM 490,200 B / 93.50%）；上一版 `484b64ca2e9cd157a191f8ea7d022f9a` 留档在 `~/桌面/PhyWear-rollback-20260915-0002/firmware/` |
+| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；`/dev/ttyUSB0` @1000000 8N1 —— **09-15 已插上**（烧录前先 `fuser /dev/ttyUSB0` 确认空闲、关 picocom） |
 | AI 日志 | `logs/XPQHyue/` **50 会话 / 15,283 事件**，`validate-log.py` ✅ ALL OK |
-| 回退点 | `~/桌面/PhyWear-rollback-20260914-2352/`（`rollback.sh --check`） |
+| 回退点 | `~/桌面/PhyWear-rollback-20260915-0002/`（含改动前固件 `484b64ca…`，本批真机 A/B 用的就是它；`rollback.sh --check`） |
 | 迁移包 | `~/桌面/PhyWear-migrate-20260914.zip` |
-| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；`/dev/ttyUSB0` @1000000 8N1 —— **当前未插**（要烧录前先插回） |
 
 ## 2. 铁律（违反 = 停止并报告，不许绕过）
 

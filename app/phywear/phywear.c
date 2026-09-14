@@ -554,6 +554,8 @@ int pw_cap_open(const char *name)
   else if (strcmp(name, "tone")      == 0) scr = pw_tone_screen();
   else if (strcmp(name, "mic")       == 0) { scr = pw_raw_screen(); pw_raw_goto(4); }
   else if (strcmp(name, "spk")       == 0) { scr = pw_raw_screen(); pw_raw_goto(5); }
+  else if (strcmp(name, "gyro")      == 0) { scr = pw_raw_screen(); pw_raw_goto(1); }
+  else if (strcmp(name, "mag")       == 0) { scr = pw_raw_screen(); pw_raw_goto(2); }
   else if (strcmp(name, "about")     == 0) scr = pw_about_screen();
   else if (strcmp(name, "ai")        == 0) scr = pw_ai_coach_screen();
   else return 0;

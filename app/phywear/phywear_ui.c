@@ -972,7 +972,22 @@ void pw_ui_root(void)
   lv_obj_t *btn;
   int i;
 
-  /* 可重复调用（语言切换后重建根屏）：清空现存栈再构建 */
+  /* 可重复调用（语言切换后重建根屏）：**先释放尚未出栈的旧屏**再重置栈。
+   * 只把 g_scr_n 归零而不删除对象，会让旧屏的资源泄漏——尤其 pw_scope
+   * 只有 6 个槽位，反复重建根屏（如 `phywear cap root`）会耗尽槽位，
+   * 之后打开的曲线页静默没有曲线。 */
+
+  while (g_scr_n > 0)
+    {
+      g_scr_n--;
+
+      if (g_scr_stack[g_scr_n] != NULL)
+        {
+          lv_obj_delete(g_scr_stack[g_scr_n]);
+          g_scr_stack[g_scr_n] = NULL;
+        }
+    }
+
   g_scr_n = 0;
   g_pending_timer = NULL;
 

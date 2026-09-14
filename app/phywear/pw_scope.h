@@ -46,4 +46,17 @@ void pw_scope_set_points(lv_obj_t *scope, FAR const float *x,
 /* 绘制坐标轴（水平零线 + 左右/上下边框），color 为轴线颜色 */
 void pw_scope_axes(lv_obj_t *scope, lv_color_t color);
 
+/* 多泳道迷你曲线（原始传感器三轴同屏用）：把绘图区竖直均分为 nser 条泳道，
+ * 每条泳道把样本按同一个满量程映射到 [-1,1] 后独立画线，泳道间与外框画
+ * 1px 分隔线（颜色取自 pw_scope_axes()；未设则取背景提亮色）。
+ *
+ *   hist   : nser × n 行主序样本（hist[ser * n + k]），k=0 最旧、n-1 最新
+ *   inv    : 1/(满量程 × 存储系数)，样本 × inv 即得 [-1,1]
+ *   colors : nser 条曲线颜色
+ *
+ * 复用同一块 RGB565 缓冲，不新增任何分配，因此只占 1 个 scope 槽位。 */
+void pw_scope_set_lanes_i16(lv_obj_t *scope, FAR const int16_t *hist,
+                            int nser, int n, float inv,
+                            FAR const lv_color_t *colors);
+
 #endif /* __APPS_EXAMPLES_PHYWEAR_SCOPE_H */

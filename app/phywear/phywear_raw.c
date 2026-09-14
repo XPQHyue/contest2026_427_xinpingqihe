@@ -21,14 +21,26 @@
  ****************************************************************************/
 
 /* 原始传感器板块：6 页横滑（Accelerometer / Gyroscope / Magnetometer /
- * Light / Microphone / Speaker），每页一个大数值实时显示，底部翻页指示点 +
- * 左右箭头。麦克风页由后台线程读 /dev/mic0 显示电平，扬声器页可直接放测试音。
+ * Light / Microphone / Speaker）。三个三轴页（加速度/陀螺/地磁）为
+ * "一行三列数值 + 迷你实时曲线"：数值列（轴字母用 X/Y/Z 系列色，单位见右上角）
+ * 下方是一块 358×186 的曲线区，竖直切成 X/Y/Z 三条泳道，与数值列左右对齐。
+ * 麦克风页由后台线程读 /dev/mic0 显示电平，扬声器页可直接放测试音。
  * 数据经 phywear_sensors 层换算为物理单位（g / dps / mG / lux）。
+ *
+ * 曲线实现：复用 pw_scope（CPU 光栅化 RGB565 → lv_image → EPIC 硬件 blit），
+ * 3 条泳道共用 1 块缓冲、每页只占 1 个 scope 槽位；历史样本以 int16 存在
+ * struct raw_page_s 里（3×80×2 B/页），不新增 lv_malloc 缓冲。
  *
  * 布局（390×450）：
  *   0..54       顶栏（pw_topbar：返回 + "Raw Sensors"）
  *   54..396     横滑内容区（每页 390×342）
  *   396..450    指示点 + 左右箭头
+ *
+ * 三轴页内部（390×342）：
+ *   4..34       页名 + 单位
+ *   36..98      三列数值（轴字母 20px / 数值 28px）
+ *   112..298    迷你实时曲线（3 条泳道 × 62 px）
+ *   306..324    左下纵轴满量程 / 右下 8 s 时间窗
  */
 
 #include <nuttx/config.h>
@@ -47,6 +59,7 @@
 #include "phywear_sensors.h"
 #include "phywear_raw.h"
 #include "phywear_i18n.h"
+#include "pw_scope.h"
 #include "pw_tone.h"
 
 /****************************************************************************
@@ -61,18 +74,31 @@
 #define RAW_CONTENT_Y  PW_TOPBAR_H
 #define RAW_CONTENT_H  (PW_SCREEN_H - PW_TOPBAR_H - 54)   /* 342 */
 
-/* 数值行参数（3 轴页共用） */
+/* 三轴页：一行三列数值 + 迷你实时曲线 */
 
-#define RAW_ROW_H      90
-#define RAW_ROW_Y0     58
-#define RAW_VAL_X      72
-#define RAW_TAG_X      18
+#define RAW_COL_X0     6
+#define RAW_COL_W      126
+#define RAW_TAG_Y      36
+#define RAW_VAL_Y      62
 
-/* 文本格式串 */
+#define RAW_SCOPE_X    16
+#define RAW_SCOPE_Y    112
+#define RAW_SCOPE_W    358
+#define RAW_SCOPE_H    186                    /* 3 条泳道 × 62 px */
+#define RAW_SCOPE_LANES 3
 
-#define FMT_G   "%+.2f g"      /* accel：mg → g */
-#define FMT_DPS "%+.1f dps"    /* gyro：mdps → dps */
-#define FMT_MG  "%+d mG"       /* mag：mG 整数 */
+#define RAW_RANGE_Y    306
+
+/* 曲线历史：80 × 100 ms = 8.0 s 时间窗（与 RAW_WIN_TXT 保持一致） */
+
+#define RAW_HIST_N     80
+#define RAW_WIN_TXT    "8 s"
+
+/* 文本格式串（三轴页数值不带单位，单位见页面右上角；列宽 126 放不下
+ * "+1234.5 dps" 这样的 7 字符组合） */
+
+#define FMT_G   "%+.2f"        /* accel：mg → g */
+#define FMT_MG  "%+d"          /* mag：mG 整数 */
 
 /****************************************************************************
  * Private Types
@@ -81,8 +107,20 @@
 struct raw_page_s
 {
   lv_obj_t *tag[3];     /* X/Y/Z 轴标签 */
-  lv_obj_t *val[3];     /* 大数值标签（3 轴页：轴值；光页：主数值） */
+  lv_obj_t *val[3];     /* 数值标签（3 轴页：轴值；光页：主数值） */
   lv_obj_t *sub[2];     /* 次级小字（光页：CH0/CH1） */
+
+  /* 迷你实时曲线（仅 3 轴页；光/麦克风/扬声器页不用） */
+
+  lv_obj_t *scope;      /* pw_scope 图像对象（3 条泳道共用 1 个槽位） */
+  lv_obj_t *rangelab;   /* 左下：纵轴满量程（自动量程） */
+  lv_obj_t *winlab;     /* 右下：横轴时间窗 */
+  const char *unit;     /* 单位串（"g"/"dps"/"mG"，静态存储） */
+  float     k;          /* 物理单位 → int16 的换算系数 */
+  float     fs;         /* 当前满量程（物理单位） */
+  float     fs_lo;      /* 满量程下限（也是初值） */
+  float     fs_hi;      /* 满量程上限（受 int16 量程约束） */
+  int       nfill;      /* 已填入样本数；< N 时整条铺当前值 */
 };
 
 struct raw_ui_s
@@ -99,6 +137,13 @@ struct raw_ui_s
  ****************************************************************************/
 
 static struct raw_ui_s g_raw;
+
+/* 曲线历史：任何时刻只有"当前页"在采样，且切页时 raw_set_page() 会把
+ * nfill 清零（整条重铺），所以三轴页共用这一份 3×RAW_HIST_N 的 int16 即可。
+ * 若按页各存一份，struct raw_page_s 有 6 个实例，会白占 3 倍 SRAM
+ * （实测 2 880 B vs 480 B）。 */
+
+static int16_t g_raw_hist[3][RAW_HIST_N];
 
 static const int g_delta_prev = -1;
 static const int g_delta_next = 1;
@@ -146,6 +191,11 @@ static void raw_set_page(int idx)
 
   g_raw.idx = idx;
   raw_sync_dots();
+
+  /* 进入新页即清空该页曲线历史：曲线只表示"本次进入后连续采样的 8 s"，
+   * 不把上次来访的旧样本接在时间轴前面（传感器只在当前页被读取）。 */
+
+  g_raw.pg[idx].nfill = 0;
 
   /* 只有麦克风页需要采集线程（离开即停，避免与频谱页抢 /dev/mic0） */
 
@@ -215,20 +265,201 @@ static void raw_scroll_end_cb(lv_event_t *e)
 }
 
 /****************************************************************************
+ * Name: raw_axis_colors
+ *
+ * Description:
+ *   X/Y/Z 三轴固定配色（红/绿/蓝惯例）；加速度/陀螺/地磁三页一致，
+ *   便于跨页对照。
+ *
+ ****************************************************************************/
+
+static void raw_axis_colors(FAR lv_color_t *c)
+{
+  c[0] = PW_SER_RED;
+  c[1] = PW_SER_GREEN;
+  c[2] = PW_SER_BLUE;
+}
+
+/****************************************************************************
+ * Name: raw_axis_q
+ *
+ * Description:
+ *   物理量 → int16 存储（四舍五入并饱和，满量程外直接贴边）。
+ *
+ ****************************************************************************/
+
+static int16_t raw_axis_q(float v, float k)
+{
+  float q = v * k;
+
+  if (q > 32767.0f)
+    {
+      q = 32767.0f;
+    }
+  else if (q < -32767.0f)
+    {
+      q = -32767.0f;
+    }
+
+  return (int16_t)(q + ((q >= 0.0f) ? 0.5f : -0.5f));
+}
+
+/****************************************************************************
+ * Name: raw_nice_fs
+ *
+ * Description:
+ *   取 {1,2,5}×10^n 中最小的 ≥ v（且不小于下限 lo）者作为满量程标称值。
+ *   三轴页的量程下限都 ≥ 1，因此返回值恒为整数，可直接 %d 打印。
+ *
+ ****************************************************************************/
+
+static float raw_nice_fs(float v, float lo)
+{
+  float p = 1.0f;
+
+  if (v < lo)
+    {
+      v = lo;
+    }
+
+  while (p < v && p < 1.0e6f)
+    {
+      p *= 10.0f;
+    }
+
+  if (p * 0.2f >= v)
+    {
+      return p * 0.2f;
+    }
+
+  if (p * 0.5f >= v)
+    {
+      return p * 0.5f;
+    }
+
+  return p;
+}
+
+/****************************************************************************
+ * Name: raw_axis_curve_update
+ *
+ * Description:
+ *   把一帧三轴数值压入历史并重画迷你曲线（仅当前可见页真正重画）。
+ *   自动量程：涨快落慢（回落需低于半量程），避免曲线随噪声忽大忽小。
+ *
+ ****************************************************************************/
+
+static void raw_axis_curve_update(int pi, FAR const float *v)
+{
+  struct raw_page_s *p = &g_raw.pg[pi];
+  float peak = 0.0f;
+  float target;
+  int i;
+  int j;
+
+  /* 1) 压历史：进入本页后的第一帧把整条铺成当前值（否则会看到一条零线），
+   * 之后每帧左移一格、从右端追加 —— 曲线立刻从右侧长出来，
+   * 而不是先整条"定格"8 秒再开始滚动。 */
+
+  if (p->nfill == 0)
+    {
+      p->nfill = 1;
+
+      for (i = 0; i < 3; i++)
+        {
+          int16_t q = raw_axis_q(v[i], p->k);
+
+          for (j = 0; j < RAW_HIST_N; j++)
+            {
+              g_raw_hist[i][j] = q;
+            }
+        }
+    }
+  else
+    {
+      for (i = 0; i < 3; i++)
+        {
+          memmove(&g_raw_hist[i][0], &g_raw_hist[i][1],
+                  (RAW_HIST_N - 1) * sizeof(int16_t));
+          g_raw_hist[i][RAW_HIST_N - 1] = raw_axis_q(v[i], p->k);
+        }
+    }
+
+  /* 2) 自动量程：取"整条窗口"（3 轴 80 点）的峰值，不能用当前瞬时值 ——
+   * 瞬时值会在正弦过零点掉到 0，量程便在两档之间反复跳（实测陀螺页
+   * 50↔20 dps 抖动：数值标注写 50、曲线却按 20 画，两者对不上）。 */
+
+  for (i = 0; i < 3; i++)
+    {
+      for (j = 0; j < RAW_HIST_N; j++)
+        {
+          float a = fabsf((float)g_raw_hist[i][j]);
+
+          if (a > peak)
+            {
+              peak = a;
+            }
+        }
+    }
+
+  target = raw_nice_fs(peak / p->k * 1.1f, p->fs_lo);
+  if (target > p->fs_hi)
+    {
+      target = p->fs_hi;
+    }
+
+  if (target > p->fs)
+    {
+      p->fs = target;                      /* 超量程：立即抬高 */
+    }
+  else if (target < p->fs * 0.5f)
+    {
+      p->fs = target;                      /* 回落：低于半量程才降 */
+    }
+
+  /* 3) 重画（离屏页等切回来时再画，省一次 EPIC blit） */
+
+  if (g_raw.idx != pi || p->scope == NULL)
+    {
+      return;
+    }
+
+  {
+    lv_color_t c[3];
+    char buf[24];
+
+    raw_axis_colors(c);
+    pw_scope_set_lanes_i16(p->scope, &g_raw_hist[0][0], RAW_SCOPE_LANES,
+                           RAW_HIST_N, 1.0f / (p->fs * p->k), c);
+
+    snprintf(buf, sizeof(buf), "+/-%d %s", (int)p->fs, p->unit);
+    lv_label_set_text(p->rangelab, buf);
+  }
+}
+
+/****************************************************************************
  * Name: raw_build_axis_page
  *
  * Description:
- *   构建 3 轴数值页（加速度/陀螺仪/地磁共用）。
+ *   构建 3 轴数值页（加速度/陀螺仪/地磁共用）：一行三列数值 + 三泳道
+ *   迷你实时曲线。
+ *
+ *   k / fs_lo / fs_hi 为曲线存储与自动量程参数：
+ *     accel  k=4000（±8.19 g）   fs 1..8 g
+ *     gyro   k=16  （±2048 dps） fs 20..2000 dps
+ *     mag    k=1   （±32767 mG） fs 100..30000 mG
  *
  ****************************************************************************/
 
 static void raw_build_axis_page(int pi, int x, const char *name,
-                                const char *unit, lv_color_t accent)
+                                const char *unit, lv_color_t accent,
+                                float k, float fs_lo, float fs_hi)
 {
   lv_obj_t *pg = lv_obj_create(g_raw.scroller);
   lv_obj_t *sub;
   lv_obj_t *uni;
   static const char ax_char[3] = {'X', 'Y', 'Z'};
+  lv_color_t acol[3];
   int i;
 
   lv_obj_set_size(pg, RAW_PAGE_W, RAW_PAGE_H);
@@ -238,32 +469,72 @@ static void raw_build_axis_page(int pi, int x, const char *name,
   lv_obj_set_style_pad_all(pg, 0, 0);
   lv_obj_remove_flag(pg, LV_OBJ_FLAG_SCROLLABLE);
 
-  /* 页眉：传感器名 + 单位 */
+  raw_axis_colors(acol);
+
+  /* 页眉：传感器名 + 单位（三轴页数值不带单位，单位只在这里标一次） */
 
   sub = pw_label_new(pg, name, PW_FNT_LARGE, accent);
   lv_obj_set_pos(sub, 20, 4);
 
-  uni = pw_label_new(pg, unit, PW_FNT_SMALL, PW_COL_DIM);
-  lv_obj_align(uni, LV_ALIGN_TOP_RIGHT, -20, 8);
+  uni = pw_label_new(pg, unit, PW_FNT_MED, PW_COL_DIM);
+  lv_obj_align(uni, LV_ALIGN_TOP_RIGHT, -20, 6);
 
-  /* 3 个轴行：轴字母(28) + 大数值(48) */
+  /* 三列数值：轴字母（系列色，20px）在上，数值（28px）在下 */
 
   for (i = 0; i < 3; i++)
     {
-      int rowy = RAW_ROW_Y0 + i * RAW_ROW_H;
+      int colx = RAW_COL_X0 + i * RAW_COL_W;
       char tagtxt[2];
 
       tagtxt[0] = ax_char[i];
       tagtxt[1] = '\0';
 
-      g_raw.pg[pi].tag[i] = pw_label_new(pg, tagtxt, PW_FNT_XL,
-                                         PW_COL_FAINT);
-      lv_obj_set_pos(g_raw.pg[pi].tag[i], RAW_TAG_X, rowy + 34);
+      g_raw.pg[pi].tag[i] = pw_label_new(pg, tagtxt, PW_FNT_MED, acol[i]);
+      lv_obj_set_width(g_raw.pg[pi].tag[i], RAW_COL_W);
+      lv_obj_set_style_text_align(g_raw.pg[pi].tag[i],
+                                  LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_pos(g_raw.pg[pi].tag[i], colx, RAW_TAG_Y);
 
-      g_raw.pg[pi].val[i] = pw_label_new(pg, "--", PW_FNT_XXL,
-                                         PW_COL_TEXT);
-      lv_obj_set_pos(g_raw.pg[pi].val[i], RAW_VAL_X, rowy + 8);
+      g_raw.pg[pi].val[i] = pw_label_new(pg, "--", PW_FNT_XL, PW_COL_TEXT);
+      lv_obj_set_width(g_raw.pg[pi].val[i], RAW_COL_W);
+      lv_obj_set_style_text_align(g_raw.pg[pi].val[i],
+                                  LV_TEXT_ALIGN_CENTER, 0);
+      lv_obj_set_pos(g_raw.pg[pi].val[i], colx, RAW_VAL_Y);
     }
+
+  /* 迷你实时曲线：一块 358×186 的 pw_scope 缓冲竖直切成 3 条泳道 */
+
+  g_raw.pg[pi].unit = unit;
+  g_raw.pg[pi].k = k;
+  g_raw.pg[pi].fs = fs_lo;
+  g_raw.pg[pi].fs_lo = fs_lo;
+  g_raw.pg[pi].fs_hi = fs_hi;
+
+  g_raw.pg[pi].scope = pw_scope_create(pg, RAW_SCOPE_W, RAW_SCOPE_H,
+                                       acol[0], PW_COL_CARD);
+  if (g_raw.pg[pi].scope != NULL)
+    {
+      lv_obj_set_pos(g_raw.pg[pi].scope, RAW_SCOPE_X, RAW_SCOPE_Y);
+      pw_scope_axes(g_raw.pg[pi].scope, PW_COL_GRID);
+    }
+
+  /* 左下：纵轴满量程（自动量程）；右下：横轴时间窗 */
+
+  g_raw.pg[pi].rangelab = pw_label_new(pg, "", PW_FNT_BODY, PW_COL_DIM);
+  lv_obj_set_pos(g_raw.pg[pi].rangelab, 20, RAW_RANGE_Y);
+
+  /* 先按量程下限显示：传感器就绪前（或模拟器无该传感器时）也不留空 */
+
+  {
+    char buf[24];
+
+    snprintf(buf, sizeof(buf), "+/-%d %s", (int)fs_lo, unit);
+    lv_label_set_text(g_raw.pg[pi].rangelab, buf);
+  }
+
+  g_raw.pg[pi].winlab = pw_label_new(pg, RAW_WIN_TXT, PW_FNT_BODY,
+                                     PW_COL_FAINT);
+  lv_obj_align(g_raw.pg[pi].winlab, LV_ALIGN_TOP_RIGHT, -20, RAW_RANGE_Y);
 }
 
 
@@ -544,7 +815,8 @@ static void raw_build_light_page(int pi, int x)
  * Name: raw_tick_cb
  *
  * Description:
- *   每 100ms 只刷新当前页对应的传感器（省 I2C 流量）。
+ *   每 100ms 只刷新当前页对应的传感器（省 I2C 流量）：三轴页同时更新
+ *   数值标签与迷你曲线的历史样本。
  *
  ****************************************************************************/
 
@@ -554,6 +826,7 @@ static void raw_tick_cb(lv_timer_t *timer)
   struct pw_mag_s mag;
   struct pw_light_s light;
   int pi = g_raw.idx;
+  int i;
 
   /* 仅活动屏刷新 */
 
@@ -567,40 +840,69 @@ static void raw_tick_cb(lv_timer_t *timer)
       case 0:   /* Accelerometer */
         if (pw_sensors_read_imu(&imu) == 0)
           {
-            lv_label_set_text_fmt(g_raw.pg[pi].val[0], FMT_G,
-                                  imu.ax / 1000.0f);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[1], FMT_G,
-                                  imu.ay / 1000.0f);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[2], FMT_G,
-                                  imu.az / 1000.0f);
+            float v[3];
+
+            v[0] = imu.ax / 1000.0f;
+            v[1] = imu.ay / 1000.0f;
+            v[2] = imu.az / 1000.0f;
+
+            for (i = 0; i < 3; i++)
+              {
+                lv_label_set_text_fmt(g_raw.pg[pi].val[i], FMT_G, v[i]);
+              }
+
+            raw_axis_curve_update(pi, v);
           }
         break;
 
       case 1:   /* Gyroscope */
         if (pw_sensors_read_imu(&imu) == 0)
           {
-            lv_label_set_text_fmt(g_raw.pg[pi].val[0], FMT_DPS,
-                                  imu.gx / 1000.0f);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[1], FMT_DPS,
-                                  imu.gy / 1000.0f);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[2], FMT_DPS,
-                                  imu.gz / 1000.0f);
+            float v[3];
+
+            v[0] = imu.gx / 1000.0f;
+            v[1] = imu.gy / 1000.0f;
+            v[2] = imu.gz / 1000.0f;
+
+            for (i = 0; i < 3; i++)
+              {
+                /* 列宽 126 放不下 "+1234.5"（7 字符），≥1000 dps 改整数 */
+
+                if (v[i] > -1000.0f && v[i] < 1000.0f)
+                  {
+                    lv_label_set_text_fmt(g_raw.pg[pi].val[i], "%+.1f", v[i]);
+                  }
+                else
+                  {
+                    lv_label_set_text_fmt(g_raw.pg[pi].val[i], "%+.0f", v[i]);
+                  }
+              }
+
+            raw_axis_curve_update(pi, v);
           }
         break;
 
       case 2:   /* Magnetometer */
         if (pw_sensors_read_mag(&mag) == 0)
           {
-            lv_label_set_text_fmt(g_raw.pg[pi].val[0], FMT_MG, mag.x);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[1], FMT_MG, mag.y);
-            lv_label_set_text_fmt(g_raw.pg[pi].val[2], FMT_MG, mag.z);
+            float v[3];
+
+            v[0] = (float)mag.x;
+            v[1] = (float)mag.y;
+            v[2] = (float)mag.z;
+
+            for (i = 0; i < 3; i++)
+              {
+                lv_label_set_text_fmt(g_raw.pg[pi].val[i], FMT_MG,
+                                      (int)v[i]);
+              }
+
+            raw_axis_curve_update(pi, v);
           }
         break;
 
       case 4:   /* Microphone */
         {
-          int i;
-
           lv_label_set_text_fmt(g_raw.pg[pi].val[0], "%d dBFS",
                                 (int)g_raw_mic_dbm);
 
@@ -702,14 +1004,14 @@ lv_obj_t *pw_raw_screen(void)
   lv_obj_add_flag(cont, LV_OBJ_FLAG_SCROLL_ONE);
   lv_obj_add_event_cb(cont, raw_scroll_end_cb, LV_EVENT_SCROLL_END, NULL);
 
-  /* 4 页 */
+  /* 三轴页：加速度 / 陀螺 / 地磁（k=存储系数，fs_lo..fs_hi=自动量程范围） */
 
   raw_build_axis_page(0, 0,          PW_STR(RAW_ACCEL), "g",
-                      PW_ACC_ACC);
+                      PW_ACC_ACC,  4000.0f, 1.0f, 8.0f);
   raw_build_axis_page(1, RAW_PAGE_W, PW_STR(RAW_GYRO), "dps",
-                      PW_ACC_GYRO);
+                      PW_ACC_GYRO, 16.0f, 20.0f, 2000.0f);
   raw_build_axis_page(2, RAW_PAGE_W * 2, PW_STR(RAW_MAG), "mG",
-                      PW_ACC_MAG);
+                      PW_ACC_MAG,  1.0f, 100.0f, 30000.0f);
   raw_build_light_page(3, RAW_PAGE_W * 3);
   raw_build_mic_page(4, RAW_PAGE_W * 4);
   raw_build_spk_page(5, RAW_PAGE_W * 5);
