@@ -28,6 +28,7 @@
 # ① 取 openvela 基线工作区（官方 manifest，分支 dev-ai-contest-2026）
 mkdir -p ~/openvela && cd ~/openvela
 repo init -u https://gitee.com/open-vela/manifests.git -b dev-ai-contest-2026 -m openvela.xml
+#   本队工作区实际用的是 SSH：ssh://git@gitee.com/open-vela/manifests.git（两种都可）
 repo sync -c -j8
 
 # ② 把本仓的改动落到工作区（脚本在本仓内，先演练后执行；--all 含官方基线快照）
@@ -94,7 +95,7 @@ cmake --build cmake_out/vela_goldfish-arm64-v8a-ap-phywear -j16
 2. **团队 manifest 的局限**：本仓根目录的 `contest2026_427_xinpingqihe.xml` 只把 `app/phywear`
    链接进工作区，**不含** `src/**` 的公共仓改动 —— 所以仍要跑第 ② 步的恢复脚本（它已覆盖全部 169 个文件）。
 3. **真机没有网络栈**：真机上 LLM 对话不可用，走端侧离线意图 + 工具；**端云 LLM 对话在模拟器演示**
-   （小米 MiMo Token Plan，TiDB 见 `docs/evidence/llm-20260913/`）。
+   （小米 MiMo Token Plan；实测记录见 `docs/evidence/llm-20260913/`）。
 4. **"主动+执行"场景默认关闭**（`PW_WATCH_PROACTIVE 0`）：代码保留、只记录事件日志，原因与后续方向见
    `docs/05_AI_Agent与Skill.md` §5。
 5. **EPIC 硬件加速来自官方 PR**（vendor_sifli #31 / lvgl #41 / nuttx-apps #121），**非本队原创**；
