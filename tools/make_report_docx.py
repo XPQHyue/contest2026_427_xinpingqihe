@@ -20,7 +20,17 @@ from pathlib import Path
 import docx
 from docx.shared import Pt
 
-DRAFT = Path(__file__).resolve().parents[2] / "docs" / "09_官方提交模板_填写草稿.md"
+def _find_draft() -> Path:
+    """在 cwd 与脚本上级目录里找草稿（脚本可能放在 tools/ 或 tools/phywear/）。"""
+    name = "09_官方提交模板_填写草稿.md"
+    for base in [Path.cwd(), *Path(__file__).resolve().parents]:
+        cand = base / "docs" / name
+        if cand.is_file():
+            return cand
+    raise SystemExit("找不到 docs/09_官方提交模板_填写草稿.md（请在参赛仓根目录运行本脚本）")
+
+
+DRAFT = _find_draft()
 
 # 官方模板里的标题 → 草稿里的起始标记
 SECTION_MAP = [
