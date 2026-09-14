@@ -37,7 +37,7 @@
 
 ## 3. 自定义 Skill
 
-**正本**：`app/phywear/skills/phywear-physics-coach.md`（《PhyWear 腕上物理实验教练》，3779 B）
+**正本**：`app/phywear/skills/phywear-physics-coach.md`（《PhyWear 腕上物理实验教练》，5165 B）
 
 内容：何时使用 / 4 个工具及其参数 / 标准流程 / **16 个页面名对照** / 结果解释要用的物理关系（`g = 4π²L/T²`、静止时合模长≈1 g、lux 量级、频谱主频范围）/ 边界条件（页名只能来自工具、采样 ≤30 s、模拟器无真实传感器、真机端侧 AI 状态）。
 
@@ -61,7 +61,7 @@
 |---|---|
 | 阶段 A：只有 Agent（10 个内置 Skill） | 技能摘要 **784 B** |
 | 阶段 B：先起 PhyWear 再起 Agent（11 个） | 技能摘要 **1135 B**（**+351 B**，正好一条摘要） |
-| 真机日志 | `[phywear] installed skill /data/agent/skills/phywear-physics-coach.md (3779 bytes)` |
+| 真机日志 | `[phywear] installed skill /data/agent/skills/phywear-physics-coach.md (5165 bytes)` |
 | 设备副本 vs 仓内正本 | md5 均 `7097e9fe8d0a496fca2a81dcbaa45e66`，逐字节一致 |
 
 证据：`docs/evidence/a1-skill-20260913/`（`RESULT.md`、`console-A.log`、`console-B.log`、`pulled-phywear-physics-coach.md`）；复现命令 `python3 tools/phywear/a1_skill_evidence.py`。
