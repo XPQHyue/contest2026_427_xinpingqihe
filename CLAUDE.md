@@ -16,19 +16,21 @@
 - **提交策略（2026-09-14 队长决定）**：**平时只提交到本地仓库**（`submit_427.sh --execute` 默认就是本地提交、不推送）；
   **等作品全部完结再一次性推送远端**（`--push`），避免提交太多次浪费时间。查看待推送：`submit_427.sh --status`。
 
-## 1. 当前状态（截至 2026-09-14 23:5x，改动后请更新）
+## 1. 当前状态（截至 2026-09-15 00:0x，改动后请更新）
 
 | 项 | 值 |
 |---|---|
-| 参赛仓 / 分支 | `contest2026_427_xinpingqihe` / `dev-ai-contest-2026` |
-| 官方仓分支 | `a83ad3e686d1`（PR #13 已合并；**PR #14 未合并前不含 PR #14 的内容**，报告里要如实说明） |
-| 待合并 PR | **#14**（MiMo 的 JUDGES.md + 协作记忆 + 打包修复 + 规则 S14；`mergeable=true`，rebase merge） |
-| 本地 / fork 默认分支 | 与官方同步 + PR #14 的 6 个提交（SHA 以 `git log -1` 为准） |
+| 参赛仓 / 分支 | `contest2026_427_xinpingqihe` / `dev-ai-contest-2026`（本地仓库即权威） |
+| **提交策略** | **平时只提交本地**（`submit_427.sh --execute`）；作品完结再 `--push` 一次性推（见 §0） |
+| 本地领先官方 | 8 个提交攒在本地（`submit_427.sh --status` 可看） |
+| 官方仓分支 | `a83ad3e686d1`（PR #11/#12/#13 已合并） |
+| 待合并 PR | **#14**（已推送、`mergeable=true/clean`、7 提交：MiMo 的 JUDGES.md + 协作记忆 + 打包修复 + 规则 S14）；按新策略可留到完结一起合 |
+| 下一步任务 | **UI 第二批**：原始传感器 6 页加迷你实时曲线、倾角页指针盘、秒表环形进度（复用 `pw_scope`，零新增 SRAM） |
 | 真机固件 | 板上 `eb13cf4ba9aea4ee9ba7d4fcf0f77383`（2,056,576 B）；已构建待烧 `484b64ca2e9cd157a191f8ea7d022f9a`（含 Skill 输出规范 5,165 B） |
 | AI 日志 | `logs/XPQHyue/` **50 会话 / 15,283 事件**，`validate-log.py` ✅ ALL OK |
-| 回退点 | `~/桌面/PhyWear-rollback-20260914-2350/`（`rollback.sh --check` 可核对） |
+| 回退点 | `~/桌面/PhyWear-rollback-20260914-2352/`（`rollback.sh --check`） |
 | 迁移包 | `~/桌面/PhyWear-migrate-20260914.zip` |
-| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；串口 `/dev/ttyUSB0` @1000000 8N1（当前**未插**） |
+| 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；`/dev/ttyUSB0` @1000000 8N1 —— **当前未插**（要烧录前先插回） |
 
 ## 2. 铁律（违反 = 停止并报告，不许绕过）
 
