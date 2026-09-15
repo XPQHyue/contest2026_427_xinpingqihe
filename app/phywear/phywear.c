@@ -84,16 +84,30 @@ static unsigned char  *g_fps_mem;
 static size_t          g_fps_frame;     /* 单帧字节数 */
 static volatile uint32_t g_fps_cnt;
 
+
+/* 计帧：挂 LVGL 显示事件，而不是替换 flush 回调。
+ * lv_refr.c 只在"本轮真的有区域重绘"时才发 LV_EVENT_RENDER_READY，
+ * 所以这就是这一页真正刷新了多少帧；且模拟器/真机都成立
+ * （真机没有 /dev/fb0，原来那套 flush 探针在真机上装不上，fps 恒为 0）。 */
+
+static void pw_fps_render_cb(lv_event_t *e)
+{
+  if (lv_event_get_code(e) == LV_EVENT_RENDER_READY)
+    {
+      g_fps_cnt++;
+    }
+}
+
 static void pw_fps_flush(lv_display_t *disp, const lv_area_t *area,
                          uint8_t *px)
 {
-  /* 把绘制缓冲写回 fb 基址（单帧），恢复显示；并计帧 */
+  /* 把绘制缓冲写回 fb 基址（单帧），恢复显示。
+   * 计帧不在这里做，交给 pw_fps_render_cb（避免双计）。 */
   if (g_fps_mem != NULL && px != NULL && g_fps_frame > 0)
     {
       memcpy(g_fps_mem, px, g_fps_frame);
     }
 
-  g_fps_cnt++;
   lv_display_flush_ready(disp);
 }
 
@@ -101,6 +115,10 @@ static void pw_fps_init(lv_display_t *disp)
 {
   struct fb_videoinfo_s vi;
   struct fb_planeinfo_s pi;
+
+  /* 先挂计帧事件（与有没有 /dev/fb0 无关，真机也能统计帧率） */
+
+  lv_display_add_event_cb(disp, pw_fps_render_cb, LV_EVENT_RENDER_READY, NULL);
 
   g_fps_fd = open("/dev/fb0", O_RDWR);
   if (g_fps_fd < 0)
@@ -1318,6 +1336,7 @@ int main(int argc, FAR char *argv[])
 
     time_t alive_mark = 0;
     unsigned long alive_frames = 0;
+    uint32_t alive_flush_mark = 0;
 
     /* 告诉 AI Agent 桥：GUI 主循环开始跑，可以受理"打开某页"请求了 */
 
@@ -1347,11 +1366,20 @@ int main(int argc, FAR char *argv[])
               /* 注意：这里统计的是 GUI 主循环次数（≈渲染帧率的 2 倍），
                * 不是屏幕刷新率，故记作 loops/s；真实帧率见 benchmark。 */
 
-              syslog(LOG_INFO, "[phywear] alive t=%lds loops/s=%lu\n",
+              uint32_t fc = g_fps_cnt;
+
+              /* 两个口径都打，别混用：
+               *   loops/s = GUI 主循环次数（不是屏幕刷新率）
+               *   fps     = 本窗口实际推屏帧数/秒 —— 帧率是否退化看这个 */
+
+              syslog(LOG_INFO,
+                     "[phywear] alive t=%lds loops/s=%lu fps=%u\n",
                      (long)an.tv_sec,
-                     (unsigned long)(alive_frames / 30));
+                     (unsigned long)(alive_frames / 30),
+                     (unsigned)((fc - alive_flush_mark) / 30u));
               alive_mark = an.tv_sec;
               alive_frames = 0;
+              alive_flush_mark = fc;
             }
         }
 

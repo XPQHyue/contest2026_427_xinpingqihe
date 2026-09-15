@@ -60,6 +60,13 @@
 
 #define TICK_MS         20
 
+/* 环形计时进度几何（计时页）：盘心 = (RING_X+RING_SZ/2, RING_Y+RING_SZ/2) */
+
+#define RING_SZ         156
+#define RING_X          16
+#define RING_Y          40
+#define RING_REF_S      2.0f   /* 还没有"上次间隔"时的参考值（秒） */
+
 #define TIME_KIND_MOTION  0
 #define TIME_KIND_LIGHT   1
 #define TIME_KIND_ACOU    2
@@ -96,6 +103,15 @@ struct time_ui_s
 
   lv_obj_t *dt_lab;        /* 大号 dt */
   lv_obj_t *state_lab;     /* armed/running/last */
+
+  /* 环形计时进度：lv_arc 满环 + 环心实时秒数（LVGL 图元，零新缓冲） */
+
+  lv_obj_t *ring;
+  lv_obj_t *ring_lab;
+  int       ring_tick;     /* 环 10Hz 节流（与 50Hz 采样解耦） */
+  int32_t   ring_val;      /* 上次写入环的值（0..1000） */
+  bool      ring_over;     /* 上次是否处于"偏慢"色 */
+  bool      ring_valid;
   lv_obj_t *th_lab;        /* 阈值数值（light/acoustic） */
   lv_obj_t *cur_lab;       /* 当前传感器值回显 */
 
@@ -132,6 +148,10 @@ static void time_update_status(const char *txt)
 {
   lv_label_set_text(g_t.status, txt);
 }
+
+/* 定义在文件后部（计时页构建处），time_event 会用到 */
+
+static void time_ring_update(void);
 
 static void time_sync_dots(void)
 {
@@ -213,6 +233,8 @@ static void time_event(void)
       lv_label_set_text_fmt(g_t.dt_lab, "%.3f", (double)g_t.last_dt);
       lv_label_set_text(g_t.state_lab, PW_STR(TIME_STOPPED));
       lv_obj_set_style_text_color(g_t.state_lab, PW_COL_DIM, 0);
+      g_t.ring_tick = 0;
+      time_ring_update();
     }
 }
 
@@ -288,6 +310,15 @@ static void time_tick_cb(lv_timer_t *timer)
   if (lv_screen_active() != g_t.scr)
     {
       return;
+    }
+
+  /* 环形进度与传感器种类无关，放在各分支之前（acoustic 分支会提前 return），
+   * 10Hz 节流：50Hz 重绘圆弧是浪费。 */
+
+  if (++g_t.ring_tick >= 5)
+    {
+      g_t.ring_tick = 0;
+      time_ring_update();
     }
 
   if (g_t.kind == TIME_KIND_MOTION)
@@ -488,6 +519,88 @@ static void time_th_build_row(lv_obj_t *parent, int y)
  * Private page builders
  ****************************************************************************/
 
+/****************************************************************************
+ * Name: time_ring_update
+ *
+ * Description:
+ *   环形计时进度：满环 = "上次间隔"（还没有就取 RING_REF_S），跑动中按
+ *   elapsed/ref 填充；超过上次间隔则满环并换成"偏慢"色。
+ *   环心显示当前跑动秒数（本页原来没有的实时读数）。
+ *
+ *   只在"值或颜色真的变了"时才写对象：set_style_arc_color() 每次调用都会
+ *   让整个圆弧对象重绘（156×156），闲时每 100ms 白刷一次很吃亏。
+ *
+ ****************************************************************************/
+
+static void time_ring_update(void)
+{
+  float elapsed = 0.0f;
+  float ref;
+  float frac;
+  bool  over;
+
+  if (g_t.ring == NULL || g_t.idx != 0)
+    {
+      return;
+    }
+
+  if (g_t.run)
+    {
+      elapsed = (float)(lv_tick_get() - g_t.t0) / 1000.0f;
+    }
+  else if (g_t.last_dt >= 0.0f)
+    {
+      elapsed = g_t.last_dt;
+    }
+
+  ref  = (g_t.last_dt > 0.01f) ? g_t.last_dt : RING_REF_S;
+  over = (elapsed > ref);
+  frac = elapsed / ref;
+
+  if (frac > 1.0f)
+    {
+      frac = 1.0f;
+    }
+
+  if (frac < 0.0f)
+    {
+      frac = 0.0f;
+    }
+
+  if (!g_t.run)
+    {
+      /* 停下时：满环但用暗色，读作"上一次间隔已完成"，而不是"正在进行" */
+
+      frac = 1.0f;
+      over = false;
+    }
+
+  {
+    int32_t v = (int32_t)(frac * 1000.0f + 0.5f);
+
+    if (!g_t.ring_valid || v != g_t.ring_val || over != g_t.ring_over)
+      {
+        lv_arc_set_value(g_t.ring, v);
+        lv_obj_set_style_arc_color(g_t.ring,
+                                   g_t.run ? (over ? PW_SER_ORANGE : T_ACC)
+                                           : PW_COL_DIM,
+                                   LV_PART_INDICATOR);
+        g_t.ring_val = v;
+        g_t.ring_over = over;
+        g_t.ring_valid = true;
+      }
+  }
+
+  if (g_t.run || g_t.last_dt >= 0.0f)
+    {
+      lv_label_set_text_fmt(g_t.ring_lab, "%.2f", (double)elapsed);
+    }
+  else
+    {
+      lv_label_set_text(g_t.ring_lab, "--");
+    }
+}
+
 static void time_build_page_timer(void)
 {
   lv_obj_t *pg = lv_obj_create(g_t.scroller);
@@ -507,20 +620,56 @@ static void time_build_page_timer(void)
   lab = pw_label_new(pg, PW_STR(TIME_EVENT_DT), PW_FNT_BODY, PW_COL_FAINT);
   lv_obj_set_pos(lab, 150, 8);
 
-  /* 大号 dt */
+  /* 左侧：环形计时进度（满环 = 上次间隔；超过则满环换色） */
+
+  g_t.ring = lv_arc_create(pg);
+  lv_obj_set_size(g_t.ring, RING_SZ, RING_SZ);
+  lv_obj_set_pos(g_t.ring, RING_X, RING_Y);
+  lv_obj_remove_flag(g_t.ring, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(g_t.ring, LV_OBJ_FLAG_CLICKABLE);
+  lv_arc_set_rotation(g_t.ring, 270);          /* 起点转到正上方 */
+  lv_arc_set_bg_angles(g_t.ring, 0, 360);
+  lv_arc_set_angles(g_t.ring, 0, 0);
+  lv_arc_set_mode(g_t.ring, LV_ARC_MODE_NORMAL);
+  lv_arc_set_range(g_t.ring, 0, 1000);
+  lv_arc_set_value(g_t.ring, 0);
+  lv_obj_remove_style(g_t.ring, NULL, LV_PART_KNOB);
+  lv_obj_set_style_arc_width(g_t.ring, 12, LV_PART_MAIN);
+  lv_obj_set_style_arc_width(g_t.ring, 12, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_color(g_t.ring, PW_COL_CARD_LT, LV_PART_MAIN);
+  lv_obj_set_style_arc_color(g_t.ring, T_ACC, LV_PART_INDICATOR);
+  lv_obj_set_style_arc_rounded(g_t.ring, true, LV_PART_MAIN);
+  lv_obj_set_style_arc_rounded(g_t.ring, true, LV_PART_INDICATOR);
+  lv_obj_set_style_bg_opa(g_t.ring, LV_OPA_TRANSP, LV_PART_MAIN);
+  lv_obj_set_style_border_width(g_t.ring, 0, LV_PART_MAIN);
+  lv_obj_set_style_pad_all(g_t.ring, 0, LV_PART_MAIN);
+
+  /* 环心：当前跑动秒数（本页原来没有实时读数） */
+
+  g_t.ring_lab = pw_label_new(pg, "--", PW_FNT_XL, PW_COL_TEXT);
+  lv_obj_set_pos(g_t.ring_lab, RING_X, RING_Y + RING_SZ / 2 - 30);
+  lv_obj_set_width(g_t.ring_lab, RING_SZ);
+  lv_obj_set_style_text_align(g_t.ring_lab, LV_TEXT_ALIGN_CENTER, 0);
+
+  lab = pw_label_new(pg, "s", PW_FNT_BODY, PW_COL_DIM);
+  lv_obj_set_pos(lab, RING_X, RING_Y + RING_SZ / 2 + 2);
+  lv_obj_set_width(lab, RING_SZ);
+  lv_obj_set_style_text_align(lab, LV_TEXT_ALIGN_CENTER, 0);
+
+  /* 右侧：上次间隔 + 状态 + 当前传感器值 */
 
   g_t.dt_lab = pw_label_new(pg, "--", PW_FNT_XXL, T_ACC);
-  lv_obj_set_pos(g_t.dt_lab, 64, 56);
+  lv_obj_set_pos(g_t.dt_lab, 190, 52);
 
   lab = pw_label_new(pg, "s", PW_FNT_MED, PW_COL_DIM);
-  lv_obj_set_pos(lab, 320, 90);
+  lv_obj_set_pos(lab, 190, 104);
 
   g_t.state_lab = pw_label_new(pg, PW_STR(TIME_ARMED),
                                PW_FNT_MED, PW_COL_DIM);
-  lv_obj_set_pos(g_t.state_lab, 64, 128);
+  lv_obj_set_pos(g_t.state_lab, 190, 134);
 
   g_t.cur_lab = pw_label_new(pg, "", PW_FNT_MED, PW_COL_TEXT);
-  lv_obj_set_pos(g_t.cur_lab, 64, 160);
+  lv_obj_set_pos(g_t.cur_lab, 190, 164);
 
   /* 阈值行 + Clear */
 

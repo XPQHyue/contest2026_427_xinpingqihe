@@ -25,8 +25,8 @@
 | 本地领先官方 | **11+ 个提交攒在本地**（以 `submit_427.sh --status` 为准，此表不追自增计数） |
 | 官方仓分支 | `a83ad3e686d1`（PR #11/#12/#13 已合并） |
 | 待合并 PR | **#14**（已推送、`mergeable=true/clean`、7 提交：MiMo 的 JUDGES.md + 协作记忆 + 打包修复 + 规则 S14）；按新策略可留到完结一起合 |
-| 下一步任务 | **UI 第二批**：(a) 原始传感器三轴页迷你曲线 **已完成 + 真机复验**（见 `docs/evidence/ui-batch2-20260915/`）；**(b) 倾角页指针盘 / (c) 秒表环形进度 等用户确认观感后再做** |
-| 真机固件 | 板上 `032d9162618b24c54f6f489e8500edd1`（**2,059,928 B**，flash 12.28%；SRAM 490,200 B / 93.50%）；上一版 `484b64ca2e9cd157a191f8ea7d022f9a` 留档在 `~/桌面/PhyWear-rollback-20260915-0002/firmware/` |
+| 下一步任务 | **UI 第二批 (a)(b)(c) 已完成 + 真机复验**（见 `docs/evidence/ui-batch2-20260915/`）；秒表页 fps 少 1 帧（10.3→9，可选修法见该 README §4）；按用户指示**先交付本批**，不再自行铺开新页面 |
+| 真机固件 | 板上 `0bcf92781d2615de11eb1aa7fac5f100`（**2,062,680 B**，flash 12.29%；SRAM 490,648 B / 93.58%）；上一版 `484b64ca2e9cd157a191f8ea7d022f9a` 留档在 `~/桌面/PhyWear-rollback-20260915-0002/firmware/` |
 | 板子 | 立创·黄山派 SF32LB52-MOD-1-N16R8；`/dev/ttyUSB0` @1000000 8N1 —— **09-15 已插上**（烧录前先 `fuser /dev/ttyUSB0` 确认空闲、关 picocom） |
 | AI 日志 | `logs/XPQHyue/` **50 会话 / 15,283 事件**，`validate-log.py` ✅ ALL OK |
 | 回退点 | `~/桌面/PhyWear-rollback-20260915-0002/`（含改动前固件 `484b64ca…`，本批真机 A/B 用的就是它；`rollback.sh --check`） |
