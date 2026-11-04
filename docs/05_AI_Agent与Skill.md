@@ -190,3 +190,89 @@ PhyWear 在 GUI 循环里以 10 Hz 读 IMU 合模长，滑动窗口 4 s：
 | `tools/phywear/gen_skill_blob.py` | 由 `.md` 生成 C 字符串（`--check` 漂移自检） |
 | `tools/phywear/boardsh.py` | 真机 NSH 命令发送/回显（守 RTS/DTR 铁律） |
 | `tools/phywear/pwshot.py` | 真机截图驱动（校验 FNV-1a 与逐行 crc，输出 PNG/rgb565） |
+
+
+---
+
+## 附：AI Coding 全景叙事（四端协同，2026-11-04 整理）
+
+### 0. 一句话
+
+AI 负责读日志、改代码、开单提 PR、写材料；人负责定需求、上板验证、裁决取舍、逐条对账。
+
+### 1. 六个阶段
+
+**阶段一：四端就位（2026-08）**
+目标：把 DSH 原体（Windows）、WORK 端（SSH 进虚拟机）、虚拟机端、SUPERAGENT（WSL2）接进同一套共享空间。
+AI 做了什么：DSH 端整理会话日志与材料；SUPERAGENT 开始盯 GitHub issue，按规则自动开单、改码、提 PR，一律不合并。
+人做了什么：定四端职责与通路，定下"PR 必须人合并"这条红线。
+可核对物：`~/phywear-coord/.board.lock`、`~/phywear-coord/BOARD.md` 端职责章节（章节号缺数据，需补）。
+
+**阶段二：需求拆解上板（2026-08 ~ 09）**
+目标：把目标拆成能在板子上验收的任务。
+AI 做了什么：WORK 端拆需求、写任务板；各端把建议丢进 `PROPOSALS/<端>/`。
+人做了什么：定优先级、砍范围、定义"什么算做完"。
+可核对物：`~/phywear-coord/BOARD.md` 任务板、`~/phywear-coord/PROPOSALS/<端>/`。
+
+**阶段三：启动链调试（2026-09）**
+目标：上电后自己跑起来业务线程。
+AI 做了什么：从"上电没动静"一路查到 `CONFIG_INIT_ENTRYPOINT="nsh_main"`，入口停在 nsh，init 脚本链根本没走；顺带发现 `rcS` 是 0 字节、`CONFIG_NSH_ROMFSETC` 没开；提出改用 `board_late_initialize()` 起自启线程。
+人做了什么：烧录、上板确认现象、拍板采用该方案。
+可核对物：`docs/aicoding/<2026-09 某日>/<agent>.md`（具体日期缺数据，需补）、`~/phywear-coord/DECISIONS.md` 对应裁决条目。
+
+**阶段四：构建配置（2026-09 ~ 10）**
+目标：让配置改动真的生效、cmake 能过。
+AI 做了什么：抓出两条——只改 defconfig 不生效（olddefconfig 保留旧值）；把 defconfig 覆盖成 .config 会丢 `CONFIG_ARCH_CORTEXM33`，cmake 报 `CMAKE_SYSTEM_PROCESSOR not set`。
+人做了什么：定下"改配置必须走完整配置流程"的规矩，逐次构建回归。
+可核对物：`docs/aicoding/<2026-10 某日>/<agent>.md`、`~/phywear-coord/DECISIONS.md`。
+
+**阶段五：外设与硬件核对（2026-10）**
+目标：充电检测与 ADC 读数可信。
+AI 做了什么：把充电检测读错的 PB_34 与实际 VBUS_DET PA_44 对上；发现厂商代码里 `sf32lb_adc_calibrate()` 内的 `HAL_LCPU_CONFIG_get()` 被注释掉，单核忙等会挂死，出厂标定拿不到，只能单点锚定。
+人做了什么：量板子、确认网络名、接受"单点锚定"的精度折中。
+可核对物：`docs/aicoding/<2026-10 某日>/<agent>.md`、`~/phywear-coord/DECISIONS.md`。
+
+**阶段六：显示链路与材料对账（2026-10 ~ 11）**
+目标：画面不撕裂，材料交得出、对得上。
+AI 做了什么：查清 LCD 双缓冲是"轮流扫描"而不是 vblank 翻页，脏区刷新必撕裂，结论落台账、取舍交人；同期做材料汇总与审计，逐条对账。
+人做了什么：定刷新策略、验收画面、把审计里编造的证据逐条打回。
+可核对物：`~/phywear-coord/SNAPSHOT/`、`docs/token_usage/` 导出、`logs/XPQHyue/` 会话日志。
+
+### 2. 我们怎么让 AI 不胡说
+
+**机制一：共享空间 + 裁决台账。** 决定先落到 `~/phywear-coord/DECISIONS.md`，谁提议、谁裁决、依据什么都写上。例子：启动入口到底走 `CONFIG_INIT_ENTRYPOINT` 还是 `board_late_initialize()`，两个方案的取舍在台账里留了记录，不靠"模型说"，也不靠谁嗓门大。
+
+**机制二：日志边做边写。** `docs/aicoding/YYYY-MM-DD/<agent>.md` 固定六段：端与模型 / 用户意图原文 / 我做了什么 / 为什么这么做 / 验证 / 结果。例子：`rcS` 是 0 字节、`CONFIG_NSH_ROMFSETC` 未开，这是当时现场看到的证据，写进日志后复盘不用靠记忆，也不给 AI 事后编一段"我当时想到了"的空间。
+
+**机制三：AI 产出一律回原文对账。** 任何路径、指标、结论回到 `logs/XPQHyue/`（54 会话 / 15,761 事件 / 12.2 MiB）和 `docs/token_usage/` 逐条核。例子：累计 4,649,232,675 tokens 不是模型报的数，是导出文件跨会话汇总出来的，评委可自己加一遍。
+
+### 3. 三个"AI 帮忙抓到"的真 bug
+
+**其一：上电不跑业务（启动链）。** 现象：烧录后有反应，业务线程没起来。AI 从"rcS 不执行"反推到入口配置，根因是 `CONFIG_INIT_ENTRYPOINT="nsh_main"`，系统停在 shell，脚本链没走；并确认 `rcS` 为 0 字节、`CONFIG_NSH_ROMFSETC` 未开。验证：改 `board_late_initialize()` 起自启线程后上板，业务线程随上电起来（验证记录：`docs/aicoding/<2026-09 某日>/<agent>.md`，日期缺数据，需补）。
+
+**其二：配置改了像没改。** 现象：改 defconfig 后重新构建，行为不变。AI 推到根因是构建走 olddefconfig、旧值被保留；进一步发现有人把 defconfig 直接覆盖成 .config，丢掉 `CONFIG_ARCH_CORTEXM33`，cmake 报 `CMAKE_SYSTEM_PROCESSOR not set`。验证：按完整配置流程重做、恢复 arch 配置后构建通过（构建日志路径缺数据，需补）。
+
+**其三：充电状态读错。** 现象：充电检测状态与实际插拔不符。AI 从 GPIO 读值反查引脚定义，发现代码读 PB_34，而硬件上 VBUS_DET 是 PA_44。验证：改到 PA_44 后插拔检测与实际一致，人上板确认（原理图页码缺数据，需补）。
+
+### 4. 一个反面案例：AI 编了 14 条不存在的路径
+
+材料汇总时我们让 MiMo 做了一次审计，它交回一份"证据清单"，里面有 14 条路径是编的，比如 `docs/evidence/ui-16pages/`——这目录根本不存在。发现方式不是读它的报告，是拿它给的路径逐条去对账，14 条全部落空。我们当场打回，并把规则改成两条：只许引用给定路径清单里的路径；不确定就写（缺数据，需补）。教训很直白：AI 产出的可信度由核对机制决定，不由模型能力决定。
+
+### 5. 可复算口径（评委可自行核对）
+
+| 指标 | 数值 | 怎么算出来的 | 在哪 |
+|---|---|---|---|
+| 会话数 | 54 | 日志目录下按会话计数 | `logs/XPQHyue/` |
+| 事件数 | 15,761 | 各会话事件条数求和 | `logs/XPQHyue/` |
+| 日志体积 | 12.2 MiB | 目录合计大小 | `logs/XPQHyue/` |
+| 累计 tokens | 4,649,232,675 | 跨会话导出汇总 | `docs/token_usage/` |
+| 审计编造路径数 | 14 | 逐条对账，全部落空 | 审计报告与对账记录（缺数据，需补） |
+| 自动合并 PR 数 | 不适用 | 红线：SUPERAGENT 只开单/改码/提 PR，不合并 | `~/phywear-coord/BOARD.md`（条目号缺数据，需补） |
+| AI 生成代码占比 | （缺数据，需补） | 需按 commit 统计，我们没做这个口径 | — |
+
+### 6. 诚实的边界
+
+1. **AI 不能上板。** 所有"改好了"的结论最终靠人烧录、上板、量信号确认，AI 只能在日志和代码里推。
+2. **AI 不能替人做取舍。** ADC 只能单点锚定、LCD 脏区刷新要不要放弃，这类精度与体验的折中由人拍板，AI 只提供选项和后果。
+3. **AI 会编路径。** MiMo 那 14 条是实证，所以现在 AI 产出一律回原文对账，对不上就当没有。
+4. **长上下文会丢细节。** 12.2 MiB、15,761 个事件不可能全在上下文里，越到后期越依赖 `~/phywear-coord/` 里落盘的东西，口头共识一律不算数。
