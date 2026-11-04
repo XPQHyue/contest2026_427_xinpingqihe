@@ -20,13 +20,15 @@
 
 #include "pw_bt.h"
 
-/* [T-0013] 临时开关：经典可连接/可被发现。配对排障期间都关 0，
- * 否则手机会走经典那条（控制器拒绝，0x0d）而根本不走到 LE。 */
+/* 经典可连接/可被发现：做 PAN(BNEP) 必须打开。
+ * 历史：T-0013 排查期曾临时置 0（误以为"控制器拒绝经典"），后来确认控制器接受
+ * Write Scan Enable（0x0c1a status=0x00），真正的问题是连接池只有 1 个槽
+ * （CONFIG_BT_MAX_CONN）+ 可发现性没生效，见 BOARD §33/§34。 */
 #ifndef PW_BR_CONNECTABLE
-#  define PW_BR_CONNECTABLE  0
+#  define PW_BR_CONNECTABLE  1
 #endif
 #ifndef PW_BR_DISCOVERABLE
-#  define PW_BR_DISCOVERABLE 0
+#  define PW_BR_DISCOVERABLE 1
 #endif
 #include "phywear_ui.h"
 
@@ -92,10 +94,6 @@ int pw_bt_init(void)
        *   discoverable → page + inquiry scan（手机能搜到）
        * 顺序不能反：discoverable 要求 PSCAN 已置位。
        */
-
-      /* [T-0013] 2026-11-04 15:2x：先不要"可被发现"。实测经典连接被控制器
-       * 拒绝（`evt 0x03 status=0x0d`），而手机一旦在扫描里看到经典身份就会
-       * 去连它，结果连不上、也轮不到 LE。等配对通了、做 PAN 时再打开。 */
 
       brc = bt_br_set_connectable(PW_BR_CONNECTABLE);
       irc = bt_br_set_discoverable(PW_BR_DISCOVERABLE);
