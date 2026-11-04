@@ -575,7 +575,15 @@
       "file_path": "logs/XPQHyue/2026-11-03/claude-code__4bcc6388-4a81-4df6-bd96-f201e6841aac.jsonl",
       "collection_mode": "cli",
       "health": "ok"
+    },
+    {
+      "session_id": "ba554b88-33c6-4b6f-a750-e7216704fc74",
+      "tool": "claude-code",
+      "started_at": "2026-11-04T08:58:31.835Z",
+      "last_event_at": "2026-11-04T09:00:42.878Z",
+      "event_count": 123,
+      "file_path": "logs/XPQHyue/2026-11-04/claude-code__ba554b88-33c6-4b6f-a750-e7216704fc74.jsonl"
     }
   ],
-  "updated_at": "2026-11-04T08:43:55.425835+00:00"
+  "updated_at": "2026-11-04T09:03:01Z"
 }
