@@ -107,3 +107,15 @@
 - 本队原创的 nuttx 传感器驱动已提 **nuttx PR #378**；官方 EPIC PR（#31/#41/#121）此前长期无人
   review，等待官方合入后评委 `repo sync` 即可编译并复现 EPIC 加速。
 - 全部源码遵循 Apache-2.0（openvela 基线协议）。
+
+---
+
+## 2026-11-04 新增文件
+
+| 文件 | 说明 | 关键 commit（vendor/sifli） |
+|---|---|---|
+| `src/vendor/sifli/chips/sf32lb52/sf32lb52_bth4.c` | 本队原创：删除 H4 层伪造 BR/EDR 配置命令的 `emulate` 分支（14 条 opcode），使 `bt_br_init()` 的配置真正下发；快照中 `PW_BTH4_TRACE_ACL` 保持 0（诊断追踪默认关闭） | `80322fd`（放行）/ `c14eec1`（追踪，默认关） |
+| `src/vendor/sifli/boards/sf32lb52/drivers/lcd/lv_lcd.c` | 本队改动：整屏重绘基线 + `PW_LCD_FULL_INVALIDATE` 开关，用 30 fps 换"不撕裂" | `365ae53` / `1922c3c` |
+| `src/vendor/sifli/boards/sf32lb52/drivers/lcd/drv_lcd_fb.c` | 配套：flush 路径与脏区处理 | `1922c3c` |
+| `src/vendor/sifli/boards/sf32lb52/lckfb_huangshan_pi/src/bsp_pinmux.c` | PA_44 作为 VBUS_DET（供电检测）的引脚配置 | `98f826c` |
+| `src/vendor/sifli/boards/sf32lb52/sf32lb52_lchspi_ulp/configs/nsh-ai/defconfig` | PhyWear 出货配置首次入仓（含 `BT_CLASSIC` / `NET_TUN` / `PRIVACY` 等） | — |
