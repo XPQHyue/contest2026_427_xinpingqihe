@@ -57,6 +57,7 @@ struct pw_graph_s;   /* 前向声明，避免强依赖 pw_graph.h */
 #define PW_COL_TEXT     lv_color_hex(0xF8FAFC)
 #define PW_COL_DIM      lv_color_hex(0x94A3B8)  /* 次级文字（colors.csv Muted Foreground，6.96:1） */
 #define PW_COL_FAINT    lv_color_hex(0x5b6875)  /* 禁用/占位文字 */
+#define PW_COL_ICON     lv_color_hex(0xCBD5E1)  /* 线性图标（可用项），见 MINIMAL-B §4 */
 
 /* 板块强调色 */
 #define PW_ACC_RAW      lv_color_hex(0x4fc3f7)  /* 原始传感器：青蓝 */
@@ -102,6 +103,11 @@ struct pw_graph_s;   /* 前向声明，避免强依赖 pw_graph.h */
  * BODY..XL = PhyWear 合并字体 pw_font_*（Montserrat Latin + Droid CJK 子集，
  * i18n 阶段2），XXL 保持 montserrat_48（纯数字大读数，无需 CJK）。
  * 字体定义见 pw_font_{14,16,20,24,28}.c。 */
+
+/* 性能打点（定义在 phywear.c）：控件树收到 PRESSED 时调一次，
+ * 屏上帧率表把"触摸 → 下一帧"的毫秒数显示成 TOUCH。 */
+
+void pw_perf_note_touch(void);
 
 extern const lv_font_t pw_font_14;
 extern const lv_font_t pw_font_16;
@@ -209,6 +215,16 @@ lv_obj_t *pw_ai_coach_screen(void);
 /* 构建并加载主菜单根屏（应用启动时调用一次；可重复调用以刷新语言） */
 
 void pw_ui_root(void);
+
+/* 息屏 / 亮屏（T-0002）：背光 0 + 全屏遮罩挡误触；亮屏撤遮罩并恢复背光。
+ * 长按任意屏也会走同一条路径；串口 `phywear sleep/wake` 供取证用。 */
+
+void pw_ui_sleep_now(void);
+void pw_ui_wake_now(void);
+
+/* 在屏中央显示蓝牙配对码（由 BT 线程设置，GUI 线程负责画） */
+void pw_ui_show_passkey(unsigned int code);
+int  pw_ui_is_asleep(void);
 
 lv_obj_t *pw_voice_screen(void);   /* 语音助手页（应答文案） */
 

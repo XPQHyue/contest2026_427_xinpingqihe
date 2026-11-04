@@ -41,6 +41,7 @@
 #include <sys/mman.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <nuttx/lcd/lcd_dev.h>
 #include <string.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -48,6 +49,12 @@
 #include <math.h>
 #include <time.h>
 #include <unistd.h>
+#include <syslog.h>
+
+#ifdef CONFIG_EXAMPLES_PHYWEAR_AUTOSTART
+#  include <nuttx/sched.h>
+#endif
+
 
 #include <lvgl/lvgl.h>
 
@@ -81,7 +88,10 @@
 #include "pw_analysis.h"
 #include "phywear_sensors.h"
 #include "phywear_ui.h"
+#include "pw_splash.h"
+#include "pw_power.h"
 #include "pw_btprobe.h"
+#include "pw_bnep.h"
 #include "pw_net.h"
 #include "pw_bt.h"
 #include "pw_btgatt.h"
@@ -127,12 +137,47 @@ uint32_t pw_ui_flush_count(void)
 }
 static volatile uint32_t g_loop_next_ms;   /* LVGL 建议的下次休眠上限（ms） */
 
-#if PW_PERF_PROBE
+/* 渲染耗时统计常开：屏上帧率表要用它（原来只在 PW_PERF_PROBE 下编，
+ * 每帧两次 clock_gettime，实测量级 < 5 us，不值得再开关一次）。 */
+
 static volatile uint32_t g_perf_us_sum;   /* 渲染耗时累加（us） */
 static volatile uint32_t g_perf_us_max;   /* 渲染耗时峰值（us） */
 static volatile uint32_t g_perf_n;        /* 渲染帧数 */
 static struct timespec   g_perf_t0;       /* 本轮渲染起点 */
-#endif
+
+/* [AGENT-VM] 屏上帧率表（T-0002）。用户反馈"感觉变卡"，需要当场能看见的
+ * 数字，而不是等 30 s 心跳里的平均值。三个口径分开给，别混着看：
+ *   fps   = 最近 1 s 真正重绘了多少帧（LVGL 只画脏区，静止时本来就很低）
+ *   rnd   = 单帧渲染耗时（ms，含峰值）—— 卡不卡主要看这个和 loop 频率
+ *   loop  = GUI 主循环每秒转了多少圈（LVGL 建议休眠时间决定）
+ */
+
+/* 默认开着：用户现在就要用眼睛验证"卡不卡"，而他没有终端敲命令。
+ * 提交前改回 0（或用 `phywear fps off` 临时关掉）。 */
+static volatile int g_fps_show = 0;   /* 默认关：仪表只在 `phywear fps on` 时出现 */
+static lv_obj_t    *g_fps_lab;
+static uint32_t     g_stat_win_ms;      /* 本统计窗口起点 */
+static uint32_t     g_stat_win_frames;  /* 窗口起点时的帧计数 */
+static uint32_t     g_stat_loops;       /* 窗口内循环次数 */
+static uint32_t     g_stat_win_us;      /* 窗口内渲染耗时累加 */
+static uint32_t     g_stat_win_n;       /* 窗口内渲染帧数 */
+static uint32_t     g_stat_fps_x10;     /* 对外：fps*10 */
+static uint32_t     g_stat_loop_rate;   /* 对外：loop/s */
+static uint32_t     g_stat_rnd_us;      /* 对外：平均渲染耗时 */
+static uint32_t     g_stat_rnd_max_us;  /* 对外：窗口内峰值 */
+
+/* 触摸→下一帧 的延迟：这是"卡不卡"最直接的数。
+ * 打点放在控件树收到 PRESSED 的那一刻，终点是下一次 RENDER_READY。 */
+
+static volatile uint32_t g_touch_ms;
+static volatile int      g_touch_pending;
+static volatile uint32_t g_lat_ms;
+
+void pw_perf_note_touch(void)
+{
+  g_touch_ms      = lv_tick_get();
+  g_touch_pending = 1;
+}
 
 
 /* 计帧：挂 LVGL 显示事件，而不是替换 flush 回调。
@@ -142,12 +187,14 @@ static struct timespec   g_perf_t0;       /* 本轮渲染起点 */
 
 static void pw_fps_render_cb(lv_event_t *e)
 {
-#if PW_PERF_PROBE
   lv_event_code_t code = lv_event_get_code(e);
 
   if (code == LV_EVENT_RENDER_START)
     {
-      clock_gettime(CLOCK_MONOTONIC, &g_perf_t0);
+      struct timespec t0;
+
+      clock_gettime(CLOCK_MONOTONIC, &t0);
+      g_perf_t0 = t0;
       return;
     }
 
@@ -162,18 +209,19 @@ static void pw_fps_render_cb(lv_event_t *e)
 
       g_perf_us_sum += us;
       g_perf_n++;
+      g_stat_win_us += us;
+      g_stat_win_n++;
       if (us > g_perf_us_max)
         {
           g_perf_us_max = us;
         }
 
-      g_fps_cnt++;
-      return;
-    }
-#endif
+      if (g_touch_pending)
+        {
+          g_lat_ms        = lv_tick_get() - g_touch_ms;
+          g_touch_pending = 0;
+        }
 
-  if (lv_event_get_code(e) == LV_EVENT_RENDER_READY)
-    {
       g_fps_cnt++;
     }
 }
@@ -191,6 +239,438 @@ static void pw_fps_flush(lv_display_t *disp, const lv_area_t *area,
   lv_display_flush_ready(disp);
 }
 
+/****************************************************************************
+ * Name: pw_fps_overlay_*
+ *
+ * Description:
+ *   屏上帧率表：`phywear fps on` 打开，右上角浮一小块，每秒刷新。
+ *   放 lv_layer_top() 上，换页不会被删；截图里也会带上（取证时正好）。
+ ****************************************************************************/
+
+static void pw_fps_overlay_make(void)
+{
+  if (g_fps_lab != NULL)
+    {
+      return;
+    }
+
+  g_fps_lab = lv_label_create(lv_layer_top());
+  lv_obj_set_style_bg_color(g_fps_lab, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(g_fps_lab, LV_OPA_70, 0);
+  lv_obj_set_style_pad_hor(g_fps_lab, 6, 0);
+  lv_obj_set_style_pad_ver(g_fps_lab, 2, 0);
+  lv_obj_set_style_radius(g_fps_lab, 4, 0);
+  lv_obj_set_style_text_font(g_fps_lab, PW_FNT_SMALL, 0);
+  lv_obj_set_style_text_color(g_fps_lab, lv_color_white(), 0);
+  lv_label_set_text(g_fps_lab, "FPS --\n--");
+  lv_obj_align(g_fps_lab, LV_ALIGN_TOP_LEFT, 6, 96);
+}
+
+static void pw_fps_overlay_paint(void)
+{
+  if (!g_fps_show)
+    {
+      return;
+    }
+
+  pw_fps_overlay_make();
+
+  lv_label_set_text_fmt(g_fps_lab,
+                        "FPS %u.%u  RND %ums/%ums\nLOOP %u/s  TOUCH %ums",
+                        (unsigned)(g_stat_fps_x10 / 10),
+                        (unsigned)(g_stat_fps_x10 % 10),
+                        (unsigned)(g_stat_rnd_us / 1000),
+                        (unsigned)(g_stat_rnd_max_us / 1000),
+                        (unsigned)g_stat_loop_rate,
+                        (unsigned)g_lat_ms);
+}
+
+/* 命令跑在第二个 phywear 进程里，绝不能碰 LVGL（会撞运行中的显示驱动）。
+ * 这里只翻一个共享标志，真正的建控件/画字由 GUI 线程的 tick 完成。 */
+
+void pw_fps_show(int on)
+{
+  g_fps_show = on ? 1 : 0;
+}
+
+int pw_fps_is_shown(void)
+{
+  return g_fps_show;
+}
+
+/* 配对码显示（跨线程）：
+ * BT 线程拿到 passkey 只能写共享变量，建控件/画字必须回到 GUI 线程做。 */
+
+static volatile unsigned int g_pin_code;
+static volatile int g_pin_seq;
+static lv_obj_t *g_pin_lab;
+static int g_pin_shown_seq;
+static uint32_t g_pin_deadline_ms;
+
+void pw_ui_show_passkey(unsigned int code)
+{
+  g_pin_code = code;
+  g_pin_seq++;
+}
+
+static void pw_pin_sync(void)
+{
+  if (g_pin_seq != g_pin_shown_seq)
+    {
+      g_pin_shown_seq = g_pin_seq;
+
+      if (g_pin_lab == NULL)
+        {
+          g_pin_lab = lv_label_create(lv_layer_top());
+          lv_obj_set_style_bg_color(g_pin_lab, lv_color_black(), 0);
+          lv_obj_set_style_bg_opa(g_pin_lab, LV_OPA_90, 0);
+          lv_obj_set_style_radius(g_pin_lab, 10, 0);
+          lv_obj_set_style_pad_all(g_pin_lab, 14, 0);
+          lv_obj_set_style_text_color(g_pin_lab, lv_color_white(), 0);
+          lv_obj_set_style_text_align(g_pin_lab, LV_TEXT_ALIGN_CENTER, 0);
+          lv_obj_align(g_pin_lab, LV_ALIGN_CENTER, 0, 0);
+        }
+
+      lv_label_set_text_fmt(g_pin_lab, "手机蓝牙配对码\n%03u %03u",
+                            (g_pin_code / 1000) % 1000, g_pin_code % 1000);
+      lv_obj_set_style_text_font(g_pin_lab,
+                                 g_pin_code > 999 ? PW_FNT_XL : PW_FNT_XL, 0);
+      lv_obj_remove_flag(g_pin_lab, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(g_pin_lab);
+      g_pin_deadline_ms = lv_tick_get() + 60000;
+    }
+
+  if (g_pin_lab != NULL &&
+      !lv_obj_has_flag(g_pin_lab, LV_OBJ_FLAG_HIDDEN) &&
+      lv_tick_get() > g_pin_deadline_ms)
+    {
+      lv_obj_add_flag(g_pin_lab, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void pw_fps_overlay_sync(void)
+{
+  static int last_show = -1;
+
+  if (last_show == g_fps_show)
+    {
+      return;
+    }
+
+  last_show = g_fps_show;
+
+  if (g_fps_show)
+    {
+      pw_fps_overlay_make();
+      lv_obj_remove_flag(g_fps_lab, LV_OBJ_FLAG_HIDDEN);
+      pw_fps_overlay_paint();
+    }
+  else if (g_fps_lab != NULL)
+    {
+      lv_obj_add_flag(g_fps_lab, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+/* 每圈喂一次；内部只在跨过 1 s 时做除法并刷新屏上文字。 */
+
+/* 直接量 /dev/lcd0 的 PUTAREA 单次耗时。
+ *
+ * 目的：把"帧率低"拆成两半 —— 是 LVGL 渲染慢，还是驱动/面板每帧要等
+ * 固定的一段时间（TE 同步、DMA 完成、任务往返）。这里绕过 LVGL，直接
+ * 对 lcd 设备做若干次 PUTAREA 并计时，得出的就是纯驱动开销。 */
+
+static void pw_lcdbench(int rounds)
+{
+  static const int row_y[] = { 0, 150, 300, 430 };
+  struct fb_videoinfo_s vi;
+  struct lcddev_area_s area;
+  uint16_t *buf;
+  struct timespec t0;
+  struct timespec t1;
+  int fd;
+  int r;
+  int i;
+
+  fd = open("/dev/lcd0", O_RDONLY);
+  if (fd < 0)
+    {
+      printf("[lcdbench] 打不开 /dev/lcd0: %d\n", errno);
+      return;
+    }
+
+  if (ioctl(fd, LCDDEVIO_GETVIDEOINFO, (unsigned long)&vi) < 0)
+    {
+      printf("[lcdbench] GETVIDEOINFO 失败: %d\n", errno);
+      close(fd);
+      return;
+    }
+
+  printf("[lcdbench] 面板 %dx%d fmt=%d，每个位置 %d 次\n",
+         (int)vi.xres, (int)vi.yres, (int)vi.fmt, rounds);
+
+  buf = malloc(121 * 25 * 2);
+  if (buf == NULL)
+    {
+      printf("[lcdbench] 内存不够\n");
+      close(fd);
+      return;
+    }
+
+  for (i = 0; i < 121 * 25; i++)
+    {
+      buf[i] = 0x07E0;
+    }
+
+  for (r = 0; r < 4; r++)
+    {
+      uint32_t best = 0xffffffffu;
+      uint32_t worst = 0;
+      uint64_t sum = 0;
+
+      area.col_start = 8;
+      area.col_end   = 128;
+      area.row_start = (fb_coord_t)row_y[r];
+      area.row_end   = (fb_coord_t)(row_y[r] + 24);
+      area.stride    = 121 * 2;
+      area.data      = (uint8_t *)buf;
+
+      for (i = 0; i < rounds; i++)
+        {
+          uint32_t us;
+
+          clock_gettime(CLOCK_MONOTONIC, &t0);
+          ioctl(fd, LCDDEVIO_PUTAREA, (unsigned long)&area);
+          clock_gettime(CLOCK_MONOTONIC, &t1);
+
+          us = (uint32_t)((t1.tv_sec - t0.tv_sec) * 1000000 +
+                          (t1.tv_nsec - t0.tv_nsec) / 1000);
+          if (us < best)  best = us;
+          if (us > worst) worst = us;
+          sum += us;
+        }
+
+      printf("[lcdbench] y=%3d: 平均 %5u us，最快 %5u us，最慢 %5u us\n",
+             row_y[r], (unsigned)(sum / rounds), (unsigned)best, (unsigned)worst);
+    }
+
+  free(buf);
+  close(fd);
+}
+
+/* 帧率压力测试：把整屏（或一小块）连续标脏，量这块屏的真实上限。
+ *
+ * 用户看到"FPS 最高只有 20 左右"会以为软件慢。要分清两件事：
+ *   - LVGL 只在有东西变的时候才画（静止页 FPS 低是正常的）；
+ *   - 真要连续画整屏时，瓶颈是 LCD 链路：390x450x2 = 342 KB/帧，
+ *     实测 36~38 ms/帧 -> 约 26~28 fps 封顶，跟 CPU 无关。
+ *
+ * 本命令先 3 s 全屏、再 2 s 小区域，把这两个数打成一行，用来证明瓶颈在哪。
+ */
+
+#define PW_BENCH_FULL_MS  3000
+#ifndef PW_BENCH_FILL_MS
+#  define PW_BENCH_FILL_MS 3000
+#endif
+#define PW_BENCH_SMALL_MS 2000
+
+static volatile int g_bench_req;      /* 1 = 外部请求开始（另一个 phywear 进程写） */
+static int      g_bench_mode;         /* 0 = 空闲，1 = 全屏，2 = 小区域 */
+static uint32_t g_bench_t0;
+static uint32_t g_bench_until;
+static uint32_t g_bench_frames0;
+static uint32_t g_bench_iters;        /* 基准测试期间累计圈数 */
+static uint32_t g_bench_iters0;       /* 窗口起点圈数 */
+static uint32_t g_bench_sum0;         /* 窗口内渲染耗时累计（us） */
+static uint32_t g_bench_n0;           /* 窗口内渲染次数 */
+static uint32_t g_bench_fl0;          /* 窗口内 flush 次数 */
+static uint32_t g_bench_px0;          /* 窗口内 flush 像素数 */
+static uint32_t g_bench_flus0;        /* 窗口内 flush 累计耗时（us） */
+static lv_obj_t *g_bench_fill;        /* 纯填色阶段用的整屏不透明矩形 */
+
+extern volatile uint32_t lv_nuttx_lcd_flush_cnt;   /* 未被使用的驱动，仅留作对照 */
+extern volatile uint32_t lv_nuttx_lcd_flush_px;
+extern volatile uint32_t pw_lcd_flush_cnt;         /* SiFli 自定义 init 真正走的 flush */
+extern volatile uint32_t pw_lcd_flush_us;
+extern volatile uint32_t pw_lcd_flush_px;
+
+static void pw_bench_begin(int mode)
+{
+  g_bench_mode    = mode;
+
+  if (mode == 3 && g_bench_fill == NULL)
+    {
+      /* 纯填色：只让 LVGL 铺满一屏不透明色块，用它测"光栅下限"，
+       * 和整屏重绘对比就能分清慢在内容复杂还是慢在系统本身。 */
+
+      g_bench_fill = lv_obj_create(lv_layer_top());
+      lv_obj_remove_style_all(g_bench_fill);
+      lv_obj_set_size(g_bench_fill, 390, 450);
+      lv_obj_set_pos(g_bench_fill, 0, 0);
+      lv_obj_set_style_bg_color(g_bench_fill, lv_color_hex(0x102030), 0);
+      lv_obj_set_style_bg_opa(g_bench_fill, LV_OPA_COVER, 0);
+      lv_obj_remove_flag(g_bench_fill, LV_OBJ_FLAG_SCROLLABLE);
+      lv_obj_add_flag(g_bench_fill, LV_OBJ_FLAG_HIDDEN);
+    }
+
+  g_bench_t0      = lv_tick_get();
+  g_bench_frames0 = g_fps_cnt;
+  g_bench_iters0  = g_bench_iters;
+  g_bench_sum0    = g_perf_us_sum;
+  g_bench_n0      = g_perf_n;
+  g_bench_fl0     = pw_lcd_flush_cnt;
+  g_bench_px0     = pw_lcd_flush_px;
+  g_bench_flus0   = pw_lcd_flush_us;
+  g_bench_until   = g_bench_t0 + (mode == 1 ? PW_BENCH_FULL_MS :
+                                  mode == 2 ? PW_BENCH_SMALL_MS : PW_BENCH_FILL_MS);
+
+  if (mode == 3 && g_bench_fill)
+    {
+      lv_obj_remove_flag(g_bench_fill, LV_OBJ_FLAG_HIDDEN);
+    }
+}
+
+static void pw_bench_report(const char *tag, uint32_t w, uint32_t h,
+                            uint32_t frames, uint32_t ms)
+{
+  /* fps 用 x10 定点打印，避免浮点在 syslog 里变成 %f 不支持的问题 */
+
+  uint32_t fps10 = ms ? (frames * 10000u) / ms : 0;
+  uint32_t perus = frames ? (ms * 1000u) / frames : 0;
+
+  syslog(LOG_INFO, "[bench] %s %lux%lu: %lu 帧 / %lu ms = %lu.%lu fps (%lu.%lu ms/帧)\n",
+         tag, (unsigned long)w, (unsigned long)h,
+         (unsigned long)frames, (unsigned long)ms,
+         (unsigned long)(fps10 / 10), (unsigned long)(fps10 % 10),
+         (unsigned long)(perus / 1000), (unsigned long)(perus % 1000));
+}
+
+static void pw_bench_tick(void)
+{
+  uint32_t now;
+  uint32_t frames;
+  uint32_t ms;
+
+  if (g_bench_req)
+    {
+      g_bench_req = 0;
+      pw_bench_begin(1);
+      return;
+    }
+
+  if (g_bench_mode == 0)
+    {
+      return;
+    }
+
+  g_bench_iters++;
+
+  now = lv_tick_get();
+  if (now >= g_bench_until)
+    {
+      frames = g_fps_cnt - g_bench_frames0;
+      ms     = now - g_bench_t0;
+
+      {
+        uint32_t iters = g_bench_iters - g_bench_iters0;
+        uint32_t rn    = g_perf_n - g_bench_n0;
+        uint32_t rus   = g_perf_us_sum - g_bench_sum0;
+
+        uint32_t fl = pw_lcd_flush_cnt - g_bench_fl0;
+        uint32_t px = pw_lcd_flush_px - g_bench_px0;
+        uint32_t fu = pw_lcd_flush_us - g_bench_flus0;
+
+        syslog(LOG_INFO, "[bench] 主循环 %lu 圈、渲染 %lu 次、平均渲染 %lu us；"
+               "flush %lu 次（平均 %lu us/次）、共 %lu px（每帧 %lu px）\n",
+               (unsigned long)iters, (unsigned long)rn,
+               (unsigned long)(rn ? rus / rn : 0),
+               (unsigned long)fl, (unsigned long)(fl ? fu / fl : 0),
+               (unsigned long)px,
+               (unsigned long)(frames ? px / frames : 0));
+      }
+
+      if (g_bench_mode == 1)
+        {
+          pw_bench_report("全屏", 390, 450, frames, ms);
+          pw_bench_begin(2);          /* 接着测小区域，证明瓶颈是面积而不是 CPU */
+        }
+      else if (g_bench_mode == 2)
+        {
+          pw_bench_report("小区域", 121, 25, frames, ms);
+          pw_bench_begin(3);
+        }
+      else
+        {
+          pw_bench_report("填色", 390, 450, frames, ms);
+
+          if (g_bench_fill)
+            {
+              lv_obj_add_flag(g_bench_fill, LV_OBJ_FLAG_HIDDEN);
+            }
+
+          g_bench_mode = 0;
+          syslog(LOG_INFO, "[bench] 结束（全屏一帧 ≈ 一次换页的画量）\n");
+        }
+      return;
+    }
+
+  if (g_bench_mode == 1)
+    {
+      lv_obj_invalidate(lv_screen_active());
+    }
+  else if (g_bench_mode == 3)
+    {
+      if (g_bench_fill)
+        {
+          lv_obj_invalidate(g_bench_fill);
+        }
+    }
+  else
+    {
+      lv_area_t a;
+
+      a.x1 = 8; a.y1 = 300;
+      a.x2 = 128; a.y2 = 324;
+      lv_obj_invalidate_area(lv_screen_active(), &a);
+    }
+}
+
+static void pw_fps_stat_tick(void)
+{
+  uint32_t now_ms = lv_tick_get();
+  uint32_t dt;
+
+  pw_fps_overlay_sync();
+
+  g_stat_loops++;
+
+  if (g_stat_win_ms == 0)
+    {
+      g_stat_win_ms = now_ms;
+      g_stat_win_frames = g_fps_cnt;
+      return;
+    }
+
+  dt = now_ms - g_stat_win_ms;
+  if (dt < 1000)
+    {
+      return;
+    }
+
+  g_stat_fps_x10    = (uint32_t)(((g_fps_cnt - g_stat_win_frames) * 10000u) / dt);
+  g_stat_loop_rate  = (uint32_t)((g_stat_loops * 1000u) / dt);
+  g_stat_rnd_us     = g_stat_win_n ? (g_stat_win_us / g_stat_win_n) : 0;
+  g_stat_rnd_max_us = g_perf_us_max;
+
+  g_stat_win_ms     = now_ms;
+  g_stat_win_frames = g_fps_cnt;
+  g_stat_loops      = 0;
+  g_stat_win_us     = 0;
+  g_stat_win_n      = 0;
+  g_perf_us_max     = 0;
+
+  pw_fps_overlay_paint();
+}
+
 static void pw_fps_init(lv_display_t *disp)
 {
   struct fb_videoinfo_s vi;
@@ -199,14 +679,22 @@ static void pw_fps_init(lv_display_t *disp)
   /* 先挂计帧事件（与有没有 /dev/fb0 无关，真机也能统计帧率） */
 
   lv_display_add_event_cb(disp, pw_fps_render_cb, LV_EVENT_RENDER_READY, NULL);
-#if PW_PERF_PROBE
   lv_display_add_event_cb(disp, pw_fps_render_cb, LV_EVENT_RENDER_START, NULL);
-#endif
+
+  /* [AGENT-WIN11] /dev/fb0 在本板由 LCD 驱动异步注册，这里早开一次必然
+   * ENOENT（历史上会在启动日志里刷一条 WARN 假错误）。改成最多 300 ms 的
+   * 短重试：既消掉误报，也尽量把 flush 快路径（直接写 framebuffer）挂上。
+   */
+
+  /* [AGENT-WIN11] 本板实测没有 /dev/fb0 节点（`ls /dev/fb0` 返回 stat
+   * failed: 2），LCD 走驱动直刷，所以"直接 memcpy 到 framebuffer"这条快
+   * 路径在本硬件上不可用。这里静默跳过：帧率仍然由 RENDER_READY 事件统
+   * 计（不依赖 fb0），也不再往启动日志里刷一条假 WARN。
+   */
 
   g_fps_fd = open("/dev/fb0", O_RDWR);
   if (g_fps_fd < 0)
     {
-      printf("WARN: fps probe: open /dev/fb0 failed: %d\n", errno);
       return;
     }
 
@@ -642,6 +1130,10 @@ int pw_cap_open(const char *name)
 
   if (strcmp(name, "bt") == 0) { pw_bt_init(); return 1; }
   if      (strcmp(name, "root")      == 0) { pw_ui_root(); return 1; }
+  /* 取证：不新建、不重建任何屏，直接拍**当前显示内容**。
+   * 用途：开机动画、息屏遮罩这类"只在某个瞬间存在"的画面，
+   * 走 root/bt 这类入口会先把画面换掉，拍到的就不是它了。 */
+  else if (strcmp(name, "cur")       == 0) { return 1; }
   /* 取证专用：主页 + 蓝牙已启动。
    * 为什么要单独一个名字：金标主页截图（shot root）必须保持"不依赖外部
    * 事件"，否则一键验收会去等一个永远不会来的 BLE 连接；而"连上以后主页
@@ -814,6 +1306,65 @@ static FAR const char *pw_shot_label(int idx)
 /****************************************************************************
  * Public Functions
  ****************************************************************************/
+
+
+/****************************************************************************
+ * Remote screenshot request (T-0004)
+ *
+ * Why: after autostart the GUI already owns the display.  A second
+ * `phywear shot <page>` process used to run lv_nuttx_init() again, hit the
+ * live display driver and die in drv_lcd_fb_init's error dump.  NuttX FLAT
+ * builds share one .data segment between tasks, so the second process can
+ * simply publish a request here and let the GUI thread build the page and
+ * stream the frame -- no second LVGL instance, no display re-init.
+ ****************************************************************************/
+
+#define PW_SHOT_REQ_IDLE    0
+#define PW_SHOT_REQ_PENDING 1
+#define PW_SHOT_REQ_DONE    2
+#define PW_SHOT_REQ_WORKING 3
+
+static volatile int g_gui_up;                 /* GUI thread has LVGL up */
+static volatile int g_cap_req_state = PW_SHOT_REQ_IDLE;
+static char         g_cap_req_page[32];
+static struct timespec g_cap_req_t0;
+
+/* Called in the *requesting* (NSH) task only. */
+
+static int phywear_remote_shot(const char *page)
+{
+  long waited = 0;
+
+  if (g_cap_req_state == PW_SHOT_REQ_PENDING ||
+      g_cap_req_state == PW_SHOT_REQ_WORKING)
+    {
+      printf("ERROR(cap): 上一张还在出图，等它完\n");
+      return EXIT_FAILURE;
+    }
+
+  strncpy(g_cap_req_page, page, sizeof(g_cap_req_page) - 1);
+  g_cap_req_page[sizeof(g_cap_req_page) - 1] = '\0';
+  g_cap_req_state = PW_SHOT_REQ_PENDING;
+
+  printf("[cap] 请求已投给运行中的 GUI：%s\n", page);
+  fflush(stdout);
+
+  while (g_cap_req_state != PW_SHOT_REQ_DONE && waited < 60000)
+    {
+      usleep(100 * 1000);
+      waited += 100;
+    }
+
+  if (g_cap_req_state != PW_SHOT_REQ_DONE)
+    {
+      printf("ERROR(cap): 等 GUI 出图超时（%ld ms）\n", waited);
+      g_cap_req_state = PW_SHOT_REQ_IDLE;
+      return EXIT_FAILURE;
+    }
+
+  g_cap_req_state = PW_SHOT_REQ_IDLE;
+  return EXIT_SUCCESS;
+}
 
 int main(int argc, FAR char *argv[])
 {
@@ -1022,9 +1573,183 @@ int main(int argc, FAR char *argv[])
       return 0;
     }
 
+  if (argc > 1 && strcmp(argv[1], "btio") == 0)
+    {
+      /* T-0009 对照实验（DSH 建议）：
+       *   phywear btio jw        纯 Just Works（不显示、不输入）
+       *   phywear btio display   屏上显示 6 位 passkey
+       * 只影响之后新发起的配对，不打断已有连接。 */
+
+      return pw_bt_set_io(argc > 2 && strcmp(argv[2], "jw") == 0);
+    }
+
+  if (argc > 1 && strcmp(argv[1], "pan") == 0)
+    {
+      /* T-0009：PANU over BNEP。
+       *   pan on <mac>  发起（要求手机已与本机建立 BR/EDR 连接）
+       *   pan off       断开
+       *   pan status    当前状态 */
+
+      if (argc > 2 && strcmp(argv[2], "on") == 0)
+        {
+          if (argc < 4)
+            {
+              printf("用法: phywear pan on AA:BB:CC:DD:EE:FF\n");
+              return -EINVAL;
+            }
+
+          return pw_pan_start(argv[3]);
+        }
+
+      if (argc > 2 && strcmp(argv[2], "off") == 0)
+        {
+          return pw_pan_stop();
+        }
+
+      {
+        char buf[256];
+
+        pw_pan_status(buf, sizeof(buf));
+        printf("%s\n", buf);
+        return 0;
+      }
+    }
+
+  if (argc > 1 && strcmp(argv[1], "bredr") == 0)
+    {
+      /* P1–P6：直发 BR/EDR 配置命令，看控制器真实态度（BOARD §18.3） */
+
+      if (argc > 2 && strcmp(argv[2], "state") == 0)
+        {
+          return pw_bt_bredr_state();
+        }
+
+      return pw_bt_bredr_probe();
+    }
+
   if (argc > 1 && strcmp(argv[1], "bthci") == 0)
     {
       pw_bt_probe();
+      return 0;
+    }
+
+  /* 电源快照（T-0002）：随时可读，串口核对电量/充电/引脚原始 mV。
+   * 与开机那一行同一个函数，便于"插拔前后各打一次"做对比。 */
+
+  if (argc > 1 && strcmp(argv[1], "power") == 0)
+    {
+      pw_power_report();
+      return 0;
+    }
+
+  /* 息屏/亮屏取证入口（T-0002）：与长按走同一条路径，串口可复现 */
+
+  if (argc > 1 && strcmp(argv[1], "sleep") == 0)
+    {
+      pw_ui_sleep_now();
+      printf("[power] screen off (mask=%d)\n", pw_ui_is_asleep());
+      return 0;
+    }
+
+  /* 屏上帧率表（T-0002 追加）：`phywear fps` 打印，`fps on/off` 开关 */
+
+  if (argc > 1 && strcmp(argv[1], "fps") == 0)
+    {
+      int on = 1;
+
+      if (argc > 2 && strcmp(argv[2], "off") == 0)
+        {
+          on = 0;
+        }
+      else if (argc > 2 && strcmp(argv[2], "on") == 0)
+        {
+          on = 1;
+        }
+      else if (argc > 2)
+        {
+          printf("用法：phywear fps [on|off]\n");
+          return EXIT_FAILURE;
+        }
+
+      if (argc > 2)
+        {
+          pw_fps_show(on);
+        }
+
+      /* 命令里带上正在跑的 GUI 的实时数字；没在跑就报 0 并提示 */
+
+      printf("[fps] 屏上仪表=%s fps=%u.%u rnd=%ums(max %ums) loop=%u/s touch=%ums\n",
+             pw_fps_is_shown() ? "开" : "关",
+             (unsigned)(g_stat_fps_x10 / 10), (unsigned)(g_stat_fps_x10 % 10),
+             (unsigned)(g_stat_rnd_us / 1000),
+             (unsigned)(g_stat_rnd_max_us / 1000),
+             (unsigned)g_stat_loop_rate,
+             (unsigned)g_lat_ms);
+      return 0;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "px") == 0)
+    {
+      /* [AGENT-VM] 累计像素/帧数快照：用来判定"小区域更新是否被放大成整屏"。
+       * 用法：phywear px 基线 -> 等 10 s -> phywear px 再看增量。
+       */
+
+      printf("[px] flush=%lu px=%lu frames=%lu avg=%lu px/帧\n",
+             (unsigned long)pw_lcd_flush_cnt,
+             (unsigned long)pw_lcd_flush_px,
+             (unsigned long)g_fps_cnt,
+             (unsigned long)(g_fps_cnt ? pw_lcd_flush_px / g_fps_cnt : 0));
+      return 0;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "lcdbench") == 0)
+    {
+      int n = 20;
+
+      if (argc > 2)
+        {
+          n = atoi(argv[2]);
+          if (n <= 0 || n > 200) n = 20;
+        }
+      pw_lcdbench(n);
+      return 0;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "fpsbench") == 0)
+    {
+      /* 只是置个标志：真正标脏屏幕的是 GUI 线程，本进程连 LVGL 都不碰
+       * （碰了就要重复初始化显示驱动，见 T-0004）。 */
+
+      g_bench_req = 1;
+      printf("[bench] 已请求：3 s 全屏 + 2 s 小区域，结果约 6 s 后打到串口\n");
+      return 0;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "plog") == 0)
+    {
+      pw_power_log_dump();
+      return 0;
+    }
+
+  /* 现场标定：`phywear batcal <万用表读数mV>` → 反推分压常数并打印 */
+
+  if (argc > 2 && strcmp(argv[1], "batcal") == 0)
+    {
+      int ref = atoi(argv[2]);
+
+      if (ref < 2500 || ref > 5000)
+        {
+          printf("用法：phywear batcal <电池实测 mV，2500~5000>\n");
+          return EXIT_FAILURE;
+        }
+
+      return pw_power_set_ref(ref) < 0 ? EXIT_FAILURE : EXIT_SUCCESS;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "wake") == 0)
+    {
+      pw_ui_wake_now();
+      printf("[power] screen on (mask=%d)\n", pw_ui_is_asleep());
       return 0;
     }
 
@@ -1051,6 +1776,13 @@ int main(int argc, FAR char *argv[])
 
   if (argc > 2 && strcmp(argv[1], "shot") == 0)
     {
+      /* 自启之后 GUI 已在跑：把请求投给它，本进程到此为止，绝不碰 LVGL。 */
+
+      if (g_gui_up)
+        {
+          return phywear_remote_shot(argv[2]);
+        }
+
       cap_screen = argv[2];
       shot_once = true;
       argc = 1;
@@ -1593,6 +2325,10 @@ int main(int argc, FAR char *argv[])
   /* FPS 探针：替换 flush 统计实际渲染帧率（性能验证用） */
   pw_fps_init(result.disp);
 
+  /* 之后 `phywear shot` 从别的任务进来时，只投请求、不再初始化显示 */
+
+  g_gui_up = 1;
+
   /* 主菜单根屏（板块宫格）；各板块按需构建子屏 */
 
 #if defined(CONFIG_LV_USE_DEMO_BENCHMARK)
@@ -1621,7 +2357,17 @@ int main(int argc, FAR char *argv[])
     }
   else
     {
+      /* [AGENT-WIN11] 开机动画：先给 1.8 s 品牌页，再进主界面。
+       * 只走"正常启动"这一支，截图/bench/raw 等取证模式不插广告。
+       */
+
+      pw_splash_show(2800);
+
       pw_ui_root();
+      pw_splash_release();
+
+      /* [AGENT-WIN11] 电源快照：电量 / 充电状态，串口可核对 */
+      pw_power_report();
 
       /* 纯 GUI：后台起蓝牙（理由见 PW_BT_AUTOSTART 的注释）。
        * 只放在这一支 —— `phywear shot/cap` 是取证入口，串口要被像素文本流独占，
@@ -1776,6 +2522,9 @@ int main(int argc, FAR char *argv[])
           loop++;
           alive_frames++;
           g_loop_next_ms = nxt;
+          pw_fps_stat_tick();
+          pw_pin_sync();
+          pw_bench_tick();
         }
 
         {
@@ -1801,8 +2550,47 @@ int main(int argc, FAR char *argv[])
               alive_mark = an.tv_sec;
               alive_frames = 0;
               alive_flush_mark = fc;
+
+              /* [T-0013] 诊断：把 HCI 计数并到心跳里，判断"手机到底有没有连上过"
+               * （验完删除） */
+
+              extern void sf32lb52_bt_stat(void);
+
+              sf32lb52_bt_stat();
             }
         }
+
+        /* 远程截图（T-0004）：建屏 → 等 400 ms 让这一屏画稳 → 出图 */
+
+        if (g_cap_req_state == PW_SHOT_REQ_PENDING)
+          {
+            g_cap_req_state = PW_SHOT_REQ_WORKING;
+            clock_gettime(CLOCK_MONOTONIC, &g_cap_req_t0);
+
+            if (!pw_cap_open(g_cap_req_page))
+              {
+                printf("WARN(cap): 未知屏 '%s'\n", g_cap_req_page);
+                fflush(stdout);
+                g_cap_req_state = PW_SHOT_REQ_DONE;
+              }
+          }
+        else if (g_cap_req_state == PW_SHOT_REQ_WORKING)
+          {
+            struct timespec cr;
+            long waited;
+
+            clock_gettime(CLOCK_MONOTONIC, &cr);
+            waited = (cr.tv_sec - g_cap_req_t0.tv_sec) * 1000 +
+                     (cr.tv_nsec - g_cap_req_t0.tv_nsec) / 1000000;
+
+            if (waited >= 400)
+              {
+                pw_shot_dump(g_cap_req_page, PW_SHOT_SRC_AUTO);
+                printf("SHOTMODE DONE %s\n", g_cap_req_page);
+                fflush(stdout);
+                g_cap_req_state = PW_SHOT_REQ_DONE;
+              }
+          }
 
         /* AI Agent 桥：执行挂起的"打开某页"请求（必须在 GUI 线程内） */
 
@@ -2094,3 +2882,49 @@ int main(int argc, FAR char *argv[])
   }
   return EXIT_SUCCESS;
 }
+
+/****************************************************************************
+ * [AGENT-WIN11] 上电自启支持
+ *
+ * 由板级 board_late_initialize() 调用：设备上电后直接进手表界面，
+ * 不再依赖 USB 串口与手敲 `phywear`。
+ *
+ * 本 app 每个 boot 周期只能跑一次 GUI（见 main() 内说明），自启只创建
+ * 一次任务，因此不会踩到「第二次运行卡在 LCD 驱动」的坑。
+ ****************************************************************************/
+
+#ifdef CONFIG_EXAMPLES_PHYWEAR_AUTOSTART
+
+static FAR char *g_pw_autostart_argv[] =
+{
+  (FAR char *)"phywear",
+  NULL
+};
+
+/* [AGENT-WIN11] 供板级代码调用的自启入口。
+ *
+ * 注意：openvela 的 nxtask_create 是 7 参数版本
+ *   (name, priority, stack_addr, stack_size, entry, argv, envp)
+ * 直接以 main 为入口、argv 显式给出，等价于在 NSH 里敲 `phywear`。
+ */
+
+int phywear_autostart(void)
+{
+  int pid;
+
+  pid = nxtask_create("phywear",
+                      CONFIG_EXAMPLES_PHYWEAR_PRIORITY,
+                      NULL,
+                      CONFIG_EXAMPLES_PHYWEAR_STACKSIZE,
+                      main,
+                      g_pw_autostart_argv,
+                      NULL);
+  if (pid < 0)
+    {
+      syslog(LOG_ERR, "[autostart] phywear task failed: %d\n", pid);
+    }
+
+  return pid;
+}
+
+#endif /* CONFIG_EXAMPLES_PHYWEAR_AUTOSTART */

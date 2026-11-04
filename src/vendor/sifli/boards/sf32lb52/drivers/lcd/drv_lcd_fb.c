@@ -1260,6 +1260,15 @@ uint32_t drv_lcd_fb_set(lcd_fb_desc_t *fb_desc)
 
 /**
    */
+/**
+ * [AGENT-VM] T-0007：给 lv_lcd.c 提供"当前正在被 LCDC 扫描的那块 framebuffer"。
+ * 双缓冲下只有它能作为逐像素镜像的真值来源；靠 using_buf 猜会猜错。
+ */
+void *drv_lcd_fb_get_flush_buf(void)
+{
+    return drv_lcd_fb.fbs[drv_lcd_fb.flush_fb_idx].fb.p_data;
+}
+
 uint32_t drv_lcd_fb_is_busy(void)
 {
     rt_err_t err;

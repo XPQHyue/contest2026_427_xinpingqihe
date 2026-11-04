@@ -39,6 +39,7 @@
 #include <lvgl/lvgl.h>
 
 #include "phywear_ui.h"
+#include "pw_icons.h"
 #include "phywear_imu.h"
 #include "phywear_i18n.h"
 #include "pw_graph.h"
@@ -55,6 +56,7 @@
 #include "pw_ai.h"
 #include "pw_bt.h"
 #include "pw_btgatt.h"
+#include "pw_power.h"
 
 /****************************************************************************
  * Private Definitions
@@ -80,6 +82,7 @@ static int       g_scr_n;
 /* 顶栏运行计时（phyphox 工具栏语义）：进入非根屏即开始计时，回到根屏归零；
  * 计时标签随顶栏创建，配栈内句柄避免悬垂指针。 */
 static lv_obj_t  *g_pending_timer;                  /* 当前顶栏刚创建的计时标签 */
+static int        g_bat_chg = -1;                  /* 上次画出来的充电态，内容没变就不重设 */
 static lv_obj_t  *g_scr_timer[UI_STACK_MAX];        /* 各屏的计时标签 */
 static uint32_t   g_meas_start;                     /* 0 = 未在测量 */
 static bool       g_timer_started;
@@ -159,8 +162,7 @@ struct pw_board_s
   uint32_t    color;
   bool        live;                 /* true=白字可进；false=灰字规划中 */
   lv_obj_t *(*open)(void);
-  const char *icon;                 /* LV_SYMBOL_* 图标（内置 Montserrat 自带字形） */
-  int         draw;                 /* 0=用 icon 字形；1=自绘摆（力学）；2=自绘对话气泡（AI） */
+  const lv_image_dsc_t *icon;       /* Lucide 线性图标（24x24，RGB565A8，运行时染色） */
 };
 
 /* g_boards[] 已改为 pw_ui_root() 内运行时构建（需要 PW_STR()） */
@@ -317,6 +319,199 @@ static void ui_bt_indicator_add(lv_obj_t *scr)
 }
 
 /****************************************************************************
+ * Name: ui_bat_*
+ *
+ * Description:
+ *   电池指示（T-0002）：顶栏与根屏共用一个画法 —— 文本 "87%" / "87%+"，
+ *   充电时变绿并带 "+"。数据走 pw_power_state()（内部 5 s 缓存），
+ *   所以这里 1 Hz 刷新不会反复开 /dev/adc0。
+ ****************************************************************************/
+
+static void ui_sleep_cb(lv_event_t *e);
+static void ui_wake_cb(lv_event_t *e);
+static void ui_touch_cb(lv_event_t *e);
+
+static void ui_bat_apply(lv_obj_t *lab)
+{
+  char buf[16];
+  int pct;
+  int chg;
+
+  if (lab == NULL)
+    {
+      return;
+    }
+
+  if (pw_power_state(&pct, &chg) < 0)
+    {
+      lv_label_set_text(lab, "--");
+      return;
+    }
+
+  snprintf(buf, sizeof(buf), chg ? "%d%%+" : "%d%%", pct);
+
+  /* [AGENT-VM] 内容没变就别碰控件：lv_label_set_text() 会无条件
+   * lv_obj_invalidate()，而 vendor 的 render_start() 会把"一个像素脏"
+   * 放大成整屏重绘（3 个 chunk ≈ 45 ms）。每秒都重设一次相同的文字，
+   * 就等于每秒卡一下——静止页面也会。
+   */
+
+  if (g_bat_chg == chg && strcmp(lv_label_get_text(lab), buf) == 0)
+    {
+      return;
+    }
+
+  g_bat_chg = chg;
+  lv_label_set_text(lab, buf);
+  lv_obj_set_style_text_color(lab, chg ? lv_color_hex(0x7ED321) : PW_COL_DIM, 0);
+}
+
+static void ui_bat_tick(lv_timer_t *t)
+{
+  ui_bat_apply(lv_timer_get_user_data(t));
+}
+
+static void ui_bat_add(lv_obj_t *parent, lv_align_t align, int x, int y)
+{
+  lv_obj_t *lab;
+  lv_timer_t *t;
+
+  /* 电量 = 16px 电池图标 + 百分比文字（MINIMAL-B §3）。
+   * 放进一个透明的"盒"里一起定位，这样图标与数字永远贴在一起，
+   * 不需要为两种对齐各写一套坐标。 */
+
+  lv_obj_t *box = lv_obj_create(parent);
+  lv_obj_set_size(box, 74, 20);
+  lv_obj_align(box, align, x, y);
+  lv_obj_set_style_bg_opa(box, LV_OPA_TRANSP, 0);
+  lv_obj_set_style_border_width(box, 0, 0);
+  lv_obj_set_style_pad_all(box, 0, 0);
+  lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_move_foreground(box);    /* 后建的卡片不许把它盖住 */
+  pw_deco(box);                   /* 纯指示：点击要冒泡给下面的按钮/屏 */
+
+  {
+    lv_obj_t *bi = lv_image_create(box);
+    lv_image_set_src(bi, &pw_icon_bat_24);
+    lv_image_set_scale(bi, 171);   /* 16/24 ≈ 0.67 → 171/256，绕自身中心缩放 */
+    lv_obj_set_style_image_recolor(bi, PW_COL_DIM, 0);
+    lv_obj_set_style_image_recolor_opa(bi, LV_OPA_COVER, 0);
+    lv_obj_align(bi, LV_ALIGN_RIGHT_MID, -42, 2);
+  }
+
+  lab = pw_label_new(box, "--", PW_FNT_BODY, PW_COL_DIM);
+  lv_obj_align(lab, LV_ALIGN_RIGHT_MID, 0, 0);
+
+  t = lv_timer_create(ui_bat_tick, 1000, lab);
+  lv_obj_add_event_cb(lab, ui_del_cb, LV_EVENT_DELETE, t);
+  ui_bat_apply(lab);
+}
+
+/****************************************************************************
+ * Name: ui_sleep_cb / ui_wake_cb
+ *
+ * Description:
+ *   长按任意屏 → 背光 0（息屏），同时铺一层全屏黑遮罩拦住误触；
+ *   点一下遮罩 → 背光恢复（亮屏）并撤掉遮罩。
+ *
+ *   为什么用遮罩而不是只关背光：背光关掉时触摸屏还在上报，用户"点亮"的那
+ *   一下会顺手点到下面的按钮（比如点进某个实验页）。遮罩把第一下吃掉，
+ *   行为才和手机一致。
+ *
+ *   第一版只挂 CLICKED，实机反馈「亮了以后还是进了下面那一页」——原因是
+ *   抬手那一刻遮罩已经被隐藏，LVGL 把同一次抬手又派发给了指针下面的控件。
+ *   现在改成挂 PRESSED（按下即亮，手感更快），并在回调里先
+ *   lv_indev_wait_release() 把本次手势从按下到抬起整段吃掉，再撤遮罩；
+ *   这样"点一下只负责亮屏"是输入设备层面的保证，不依赖控件还在不在。
+ ****************************************************************************/
+
+static lv_obj_t *g_sleep_mask;
+
+void pw_ui_wake_now(void)
+{
+  /* 只隐藏不删除：本函数常在遮罩自己的 CLICKED 回调里跑（点屏唤醒），
+   * 当场 delete 自己这块对象在 LVGL 里属于"事件回调内删对象"，容易踩到
+   * 事件还在栈上、对象已经没了的坑。遮罩只有一块，留着复用最省事。 */
+
+  if (g_sleep_mask != NULL)
+    {
+      lv_obj_add_flag(g_sleep_mask, LV_OBJ_FLAG_HIDDEN);
+    }
+
+  pw_power_screen_on();
+}
+
+int pw_ui_is_asleep(void)
+{
+  return g_sleep_mask != NULL &&
+         !lv_obj_has_flag(g_sleep_mask, LV_OBJ_FLAG_HIDDEN);
+}
+
+void pw_ui_sleep_now(void)
+{
+  if (g_sleep_mask != NULL)
+    {
+      lv_obj_remove_flag(g_sleep_mask, LV_OBJ_FLAG_HIDDEN);
+      lv_obj_move_foreground(g_sleep_mask);
+      pw_power_screen_off();
+      return;
+    }
+
+  pw_power_screen_off();
+
+  g_sleep_mask = lv_obj_create(lv_layer_top());
+  lv_obj_set_size(g_sleep_mask, PW_SCREEN_W, PW_SCREEN_H);
+  lv_obj_set_pos(g_sleep_mask, 0, 0);
+  lv_obj_set_style_bg_color(g_sleep_mask, lv_color_black(), 0);
+  lv_obj_set_style_bg_opa(g_sleep_mask, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(g_sleep_mask, 0, 0);
+  lv_obj_set_style_radius(g_sleep_mask, 0, 0);
+  lv_obj_set_style_pad_all(g_sleep_mask, 0, 0);
+  lv_obj_remove_flag(g_sleep_mask, LV_OBJ_FLAG_SCROLLABLE);
+  /* 按下即亮，并且把这一次手势整段吞掉（见文件头注释）。 */
+
+  lv_obj_add_event_cb(g_sleep_mask, ui_wake_cb, LV_EVENT_PRESSED, NULL);
+}
+
+static void ui_wake_cb(lv_event_t *e)
+{
+  lv_indev_t *indev = lv_indev_active();
+
+  /* 先把"从这次按下到抬手"整段标成待释放：抬手事件会被输入设备丢弃，
+   * 不会变成下面那层控件的 CLICKED。必须在撤遮罩之前调用。 */
+
+  if (indev != NULL)
+    {
+      lv_indev_wait_release(indev);
+    }
+
+  pw_ui_wake_now();
+}
+
+/* 触摸打点（只记时间，不做任何界面动作）：给屏上帧率表的 TOUCH 用。
+ * 挂在每一屏上，子控件的按下事件会冒泡上来。 */
+
+static void ui_touch_cb(lv_event_t *e)
+{
+  pw_perf_note_touch();
+}
+
+static void ui_sleep_cb(lv_event_t *e)
+{
+  lv_indev_t *indev = lv_indev_active();
+
+  /* 长按触发的抬手同样吞掉：否则息屏那一瞬间手指抬起，CLICKED 会落到
+   * 卡片上，等用户点屏唤醒时看到的已经是被点进去的另一页。 */
+
+  if (indev != NULL)
+    {
+      lv_indev_wait_release(indev);
+    }
+
+  pw_ui_sleep_now();
+}
+
+/****************************************************************************
  * Name: ui_back_cb
  ****************************************************************************/
 
@@ -380,6 +575,11 @@ lv_obj_t *pw_scr_new(void)
   lv_obj_set_style_radius(scr, 0, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
 
+  /* 屏本身要能收 press：长按息屏的事件从子控件冒泡上来，
+   * 而不可点的对象根本不产生 press 事件链。 */
+
+  lv_obj_add_flag(scr, LV_OBJ_FLAG_CLICKABLE);
+
   return scr;
 }
 
@@ -399,6 +599,12 @@ void pw_scr_open(lv_obj_t *scr)
               (UI_STACK_MAX - 1) * sizeof(lv_obj_t *));
       g_scr_n--;
     }
+
+  /* 长按息屏（T-0002）：挂在每一屏上，子控件的事件默认冒泡到屏，
+   * 所以在任意页面长按都能睡。 */
+
+  lv_obj_add_event_cb(scr, ui_sleep_cb, LV_EVENT_LONG_PRESSED, NULL);
+  lv_obj_add_event_cb(scr, ui_touch_cb, LV_EVENT_PRESSED, NULL);
 
   g_scr_stack[g_scr_n] = scr;
   g_scr_timer[g_scr_n] = g_pending_timer;
@@ -505,8 +711,14 @@ lv_obj_t *pw_topbar(lv_obj_t *scr, const char *title)
   /* 顶栏右侧运行计时（phyphox 工具栏语义；进入测量屏后 1Hz 刷新 mm:ss） */
 
   lab = pw_label_new(bar, "", PW_FNT_SMALL, PW_COL_DIM);
-  lv_obj_align(lab, LV_ALIGN_RIGHT_MID, -24, 0);   /* 时间左移一点点 */
+  /* 右侧状态区：计时在左、电量在最右（手机状态栏的惯用顺序） */
+
+  lv_obj_align(lab, LV_ALIGN_RIGHT_MID, -102, 0);  /* 给右侧电量图标让位 */
   g_pending_timer = lab;
+
+  /* 顶栏右侧电源指示（电量 + 充电标记），所有子页共用 */
+
+  ui_bat_add(bar, LV_ALIGN_RIGHT_MID, -16, 0);
 
   /* 内容区（下方全部区域，调用方可改尺寸） */
 
@@ -1492,14 +1704,14 @@ void pw_ui_root(void)
 {
   const struct pw_board_s boards[] =
   {
-    { PW_STR(UI_RAW_SENSORS), PW_STR(UI_RAW_DESC),    0x4fc3f7, true,  pw_raw_screen,  LV_SYMBOL_GPS },
-    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0x81c784, true,  ui_mech_open,  NULL, 1 },
-    { PW_STR(UI_ACOUSTICS),   PW_STR(UI_ACOU_DESC),   0xffb74d, true,  ui_acou_open,  LV_SYMBOL_AUDIO },
-    { PW_STR(UI_TOOLS),       PW_STR(UI_TOOLS_DESC),  0xba68c8, true,  ui_tool_open,  LV_SYMBOL_EDIT },
-    { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0x4dd0e1, true,  ui_time_open,  LV_SYMBOL_BELL },
-    { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0xff8a65, true,  ui_every_open, LV_SYMBOL_HOME },
-    { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0x90a4ae, false, ui_custom_open, LV_SYMBOL_PLUS },
-    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0xf06292, true,  ui_ai_open,    NULL, 2 },
+    { PW_STR(UI_RAW_SENSORS), PW_STR(UI_RAW_DESC),    0, true,  pw_raw_screen,  &pw_icon_raw_24 },
+    { PW_STR(UI_MECHANICS),   PW_STR(UI_MECH_DESC),   0, true,  ui_mech_open,   &pw_icon_mech_24 },
+    { PW_STR(UI_ACOUSTICS),   PW_STR(UI_ACOU_DESC),   0, true,  ui_acou_open,   &pw_icon_acou_24 },
+    { PW_STR(UI_TOOLS),       PW_STR(UI_TOOLS_DESC),  0, true,  ui_tool_open,   &pw_icon_tools_24 },
+    { PW_STR(UI_TIMERS),      PW_STR(UI_TIMERS_DESC), 0, true,  ui_time_open,   &pw_icon_timer_24 },
+    { PW_STR(UI_EVERYDAY),    PW_STR(UI_EVERY_DESC),  0, true,  ui_every_open,  &pw_icon_daily_24 },
+    { PW_STR(UI_CUSTOM),      PW_STR(UI_CUSTOM_DESC), 0, false, ui_custom_open, &pw_icon_custom_24 },
+    { PW_STR(UI_AI_COACH),    PW_STR(UI_AI_DESC),     0, true,  ui_ai_open,     &pw_icon_ai_24 },
   };
   const int nboards = sizeof(boards) / sizeof(boards[0]);
   lv_obj_t *scr;
@@ -1560,6 +1772,15 @@ void pw_ui_root(void)
 
   ui_bt_indicator_add(scr);
 
+  /* 根屏电源指示：放在标题与蓝牙指示之间的空档（x≈146..188），
+   * 几何见 ui_bt_indicator_add() 的说明。 */
+
+  /* 头部 0..54 被 标题/蓝牙/语/设置 占满，宫格从 y=70 开始：
+   * 只剩 54..70 这条 16 px 的横带（正好一个 pw_font_16 的高度），
+   * 右对齐贴齐"…"按钮右缘放电量，既不压控件也不压卡片。 */
+
+  ui_bat_add(scr, LV_ALIGN_TOP_RIGHT, -14, 50);
+
   /* 右上角设置入口（phyphox 溢出菜单思想的极简版） */
 
   btn = lv_obj_create(scr);
@@ -1583,12 +1804,26 @@ void pw_ui_root(void)
     lv_obj_remove_flag(vb, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_event_cb(vb, ui_voice_cb, LV_EVENT_CLICKED, NULL);
     pw_press_style(vb);
-    lab = pw_label_new(vb, "语", PW_FNT_MED, PW_COL_DIM);
-    lv_obj_center(lab);
+    /* 语音入口：麦克风线性图标（MINIMAL-B §3），比汉字"语"更统一 */
+
+    {
+      lv_obj_t *mic = lv_image_create(vb);
+      lv_image_set_src(mic, &pw_icon_mic_24);
+      lv_obj_center(mic);
+      lv_obj_set_style_image_recolor(mic, PW_COL_DIM, 0);
+      lv_obj_set_style_image_recolor_opa(mic, LV_OPA_COVER, 0);
+    }
   }
 
-  lab = pw_label_new(btn, "...", PW_FNT_XL, PW_COL_DIM);
-  lv_obj_center(lab);
+  /* 设置入口：省略号线性图标（原为 28px "..." 文本） */
+
+  {
+    lv_obj_t *more = lv_image_create(btn);
+    lv_image_set_src(more, &pw_icon_more_24);
+    lv_obj_center(more);
+    lv_obj_set_style_image_recolor(more, PW_COL_DIM, 0);
+    lv_obj_set_style_image_recolor_opa(more, LV_OPA_COVER, 0);
+  }
 
   /* 板块宫格 2×4 */
 
@@ -1600,7 +1835,6 @@ void pw_ui_root(void)
       int y = MENU_Y0 + row * (MENU_TILE_H + MENU_GAP);
       const struct pw_board_s *b = &boards[i];
       lv_obj_t *tile;
-      lv_obj_t *chip;
       lv_obj_t *name;
       lv_obj_t *info;
 
@@ -1618,30 +1852,15 @@ void pw_ui_root(void)
       pw_motion_slide_in_y_at(tile, y, 12, 240, (uint32_t)i * 40);
 #endif
 
-      /* 板块图标：淡色圆底 + LV_SYMBOL 字形（内置 Montserrat 已含 symbols，
-       * 不必重生成中文字体子集；字色用板块色，视觉上仍是"一区一色"） */
+      /* 板块图标：Lucide 线性图标，统一中性色，靠形状而不是颜色区分版块。
+       * 图标是 RGB565A8 白色遮罩，运行时 recolor，一份数组可染任意色。 */
 
-      chip = lv_obj_create(tile);
-      lv_obj_set_size(chip, 30, 30);
-      lv_obj_set_pos(chip, 12, 12);
-      lv_obj_set_style_bg_color(chip, lv_color_hex(b->color), 0);
-      lv_obj_set_style_bg_opa(chip, LV_OPA_20, 0);
-      lv_obj_set_style_radius(chip, 9, 0);   /* 圆角方块（v2 观感） */
-      lv_obj_set_style_border_width(chip, 0, 0);
-      lv_obj_set_style_pad_all(chip, 0, 0);
-      lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
-
-      if (b->draw != 0)
-        {
-          tile_draw_icon(chip, b->draw,
-                         b->live ? lv_color_hex(b->color) : PW_COL_FAINT);
-        }
-      else
-        {
-          lab = pw_label_new(chip, b->icon, &lv_font_montserrat_20,
-                             b->live ? lv_color_hex(b->color) : PW_COL_FAINT);
-          lv_obj_center(lab);
-        }
+      lv_obj_t *img = lv_image_create(tile);
+      lv_image_set_src(img, b->icon);
+      lv_obj_set_pos(img, 12, 14);
+      lv_obj_set_style_image_recolor(img,
+                                     b->live ? PW_COL_ICON : PW_COL_FAINT, 0);
+      lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
 
       /* 名称 + 状态 */
 

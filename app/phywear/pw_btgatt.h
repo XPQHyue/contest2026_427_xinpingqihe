@@ -78,4 +78,8 @@ FAR const struct pw_bt_link_s *pw_bt_link(void);
  */
 int pw_bt_send_text(FAR const char *text);
 
+/* 运行时切换 LE 配对的 IO 能力：jw=1 纯 Just Works；jw=0 屏上显示 passkey。
+ * 仅用于配对问题定位（DSH 建议的 J1/J2 对照实验）。 */
+int pw_bt_set_io(int jw);
+
 #endif /* __APPS_EXAMPLES_PHYWEAR_PW_BTGATT_H */

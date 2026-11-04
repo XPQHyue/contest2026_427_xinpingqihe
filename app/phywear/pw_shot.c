@@ -79,7 +79,7 @@
  * FNV-1a hash in the SHOT-BEGIN header.
  */
 
-#define PW_SHOT_PASSES     2
+#define PW_SHOT_PASSES     3
 
 /* Worst case output line: 4 seq digits + ':' + 256 base64 + ':' + 4 crc. */
 

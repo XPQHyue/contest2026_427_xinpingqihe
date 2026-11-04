@@ -39,6 +39,7 @@
 
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
+#include <zephyr/bluetooth/crypto.h>
 #include <zephyr/bluetooth/conn.h>
 #include <zephyr/bluetooth/gatt.h>
 
@@ -713,19 +714,118 @@ static void pw_le_param_updated(struct bt_conn *conn, uint16_t interval,
   pw_bt_log(PW_BT_DIR_SYS, "conn param updated");
 }
 
+static void pw_security_changed(struct bt_conn *conn, bt_security_t level,
+                                enum bt_security_err err)
+{
+  printf("[bt] security level=%d err=%d\n", (int)level, (int)err);
+  pw_bt_log(PW_BT_DIR_SYS, "security changed");
+}
+
+static void pw_auth_passkey_display(struct bt_conn *conn, unsigned int passkey)
+{
+  (void)conn;
+
+  /* IO 能力由"注册了哪些回调"反推：只注册 passkey_display →
+   * zblue 认为本机是 DisplayOnly，手机那侧出键盘、我们这侧出 6 位数。
+   * 这样 AuthReq 里的 MITM 位才有人兑现，配对不会再被手机以
+   * 0x03（Authentication Requirements）打回。 */
+
+  printf("[bt] PASSKEY %06u —— 请在手机上输入这 6 位\n", passkey);
+  pw_ui_show_passkey(passkey);
+  pw_bt_log(PW_BT_DIR_SYS, "passkey on screen");
+}
+
+/* 配对回调：没有它，zblue 用默认 IO 能力（NoInputNoOutput）走 Just Works，
+ * 但 CONFIG_BT_SMP_ENFORCE_MITM=y 又要求 MITM —— 二者矛盾时配对必然失败，
+ * 手机侧的表现正是"显示已配对 1 秒，然后配对记录消失"。 */
+static void pw_auth_cancel(struct bt_conn *conn)
+{
+  (void)conn;
+  printf("[bt] SMP auth cancel\n");
+}
+
+static void pw_auth_pairing_complete(struct bt_conn *conn, bool bonded)
+{
+  char addr[BT_ADDR_LE_STR_LEN];
+  bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+  printf("[bt] SMP pairing complete: %s bonded=%d\n", addr, (int)bonded);
+  pw_bt_log(PW_BT_DIR_SYS, bonded ? "paired+bonded" : "paired");
+}
+
+static void pw_auth_pairing_failed(struct bt_conn *conn,
+                                   enum bt_security_err reason)
+{
+  printf("[bt] SMP pairing FAILED reason=%d (%s)\n", (int)reason,
+         bt_security_err_to_str(reason));
+  pw_bt_log(PW_BT_DIR_SYS, "pairing failed");
+}
+
+/* zblue 把"配对完成/失败"放在 bt_conn_auth_info_cb 里，
+ * bt_conn_auth_cb 只放 passkey/confirm/pincode/cancel。两个都要注册。 */
+static const struct bt_conn_auth_cb pw_auth_cb =
+{
+  .cancel = pw_auth_cancel,
+  .passkey_display = pw_auth_passkey_display,
+};
+
+/* 注意：这里**不能加 const**。bt_conn_auth_info_cb_register() 会把这个
+ * 结构体挂进链表（sys_slist_append 写 cb->node），const 结构体落在 flash，
+ * 写 flash 会直接把设备挂死（2026-11-04 实测：注册后整机停在 bt_enable 之后，
+ * 无任何输出，等看门狗复位循环）。 */
+/* 纯 Just Works 用的一组回调（不声明任何显示/输入能力）。
+ * 用途：DSH 原体建议的分辨实验 J1 —— 冷启后第一次就做 JW 配对，
+ * 若仍 Confirm Failed，说明不是 passkey/tk 的事。 */
+static const struct bt_conn_auth_cb pw_auth_cb_jw =
+{
+  .cancel = pw_auth_cancel,
+};
+
+static struct bt_conn_auth_info_cb pw_auth_info_cb =
+{
+  .pairing_complete = pw_auth_pairing_complete,
+  .pairing_failed = pw_auth_pairing_failed,
+};
+
+int pw_bt_set_io(int jw)
+{
+  const struct bt_conn_auth_cb *cb = jw ? &pw_auth_cb_jw : &pw_auth_cb;
+  int rc;
+  int lerc;
+
+  lerc = bt_conn_le_auth_cb_register(cb);
+  rc = bt_conn_auth_cb_register(cb);
+  printf("[bt] IO=%s le_rc=%d rc=%d\n",
+         jw ? "NoInputNoOutput(JW)" : "DisplayOnly(passkey)", lerc, rc);
+  return rc;
+}
+
 static struct bt_conn_cb pw_conn_cb =
 {
   .connected = pw_connected,
   .disconnected = pw_disconnected,
   .le_param_updated = pw_le_param_updated,
+  .security_changed = pw_security_changed,
 };
+
+/* [T-0013] 临时名字：手机里存的旧记录（旧地址 + 旧密钥 + 旧名字）会让
+ * "点配对"直接失败、连尝试都不发。改个名字等于给手机一台"新设备"，
+ * 绕开它的缓存；配对打通后改回 "PhyWear"。 */
+
+#define PW_BT_NAME "PhyWear"
 
 /* ── 广播数据 ───────────────────────────────────────────────────────── */
 
 static const struct bt_data pw_ad[] =
 {
+  /* [T-0013] 2026-11-04 15:2x 结论：去掉 NO_BREDR 反而更糟 —— 安卓于是把我们
+   * 当双模设备、优先走经典蓝牙去连，而控制器对经典连接回
+   * `evt 0x03 status=0x0d`（Connection Rejected due to Limited Resources），
+   * 手机侧表现就是"点了配对没反应/直接失败"，而且一个 ACL 包都到不了应用层。
+   * 恢复 NO_BREDR：广播只声明 LE，手机就只按 LE 连（配对要修的是 c1 的 rat，
+   * 不是连接方式）。 */
+
   BT_DATA_BYTES(BT_DATA_FLAGS, BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR),
-  BT_DATA(BT_DATA_NAME_COMPLETE, "PhyWear", 7),
+  BT_DATA(BT_DATA_NAME_COMPLETE, PW_BT_NAME, sizeof(PW_BT_NAME) - 1),
 };
 
 static const struct bt_data pw_sd[] =
@@ -1015,14 +1115,36 @@ int pw_btgatt_start(void)
   rc = bt_conn_cb_register(&pw_conn_cb);
   printf("[bt] B2 conn cb register rc=%d\n", rc);
 
+  /* 先注册 auth 回调，再让中心设备发起配对 —— 否则配对失败时我们
+   * 连原因都拿不到（2026-11-04：手机配对 1 秒后配对记录就消失）。 */
+  /* [T-0013-A] 开机默认用 JW 那组回调（DSH 要求，避免依赖 NSH 手动切）
+   * 实测 NSH 在 app 起来之后输入不可靠，`phywear btio jw` 常常没有回显。 */
+
+  rc = bt_conn_auth_cb_register(&pw_auth_cb_jw);
+  printf("[bt] B2 auth cb register(JW) rc=%d\n", rc);
+  /* 关键：bt_conn_auth_cb_register() 只把回调存进 hdev->bt_auth（给 BR/EDR 用），
+   * LE 的 SMP 读的是 hdev->le_auth —— 必须再调一次 LE 专用注册。
+   * 只注册前者时，get_io_capa() 拿到 NULL → IO=NoInputNoOutput → AuthReq 不带
+   * MITM 位（实测 0x21 而不是 0x25），手机按 Just Works 校验 confirm 必然失败。 */
+
+  {
+    int lerc = bt_conn_le_auth_cb_register(&pw_auth_cb_jw);
+
+    printf("[bt] B2 LE auth cb register(JW) rc=%d\n", lerc);
+  }
+
+  rc = bt_conn_auth_info_cb_register(&pw_auth_info_cb);
+  printf("[bt] B2 auth info cb register rc=%d\n", rc);
+
   /* ⚠️ 广播数据里我们写的是 "PhyWear"，但 **GAP 的 Device Name 特性**取的是
    * `CONFIG_BT_DEVICE_NAME`（本板默认 "Zephyr"）—— 两者不一致时：
    * 手机首次扫描看到 "PhyWear"，连上后读名字（或系统缓存）就变成 "Zephyr"。
    * **实测（2026-09-18，宿主 BlueZ）**：断开重连后设备名显示为 'Zephyr'，
    * 就是踩了这个坑。这里把 GAP 名字也设成 "PhyWear"。
    * （需要 CONFIG_BT_DEVICE_NAME_DYNAMIC=y，本板已开。） */
-  rc = bt_set_name("PhyWear");
+  rc = bt_set_name(PW_BT_NAME);
   printf("[bt] B2 set_name \"PhyWear\" rc=%d\n", rc);
+
 
   rc = bt_le_adv_start(BT_LE_ADV_CONN, pw_ad, ARRAY_SIZE(pw_ad), pw_sd,
                        ARRAY_SIZE(pw_sd));

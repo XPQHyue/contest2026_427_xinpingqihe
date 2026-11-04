@@ -16,7 +16,18 @@
 #include <zephyr/kernel.h>
 #include <zephyr/bluetooth/bluetooth.h>
 
+#include <zephyr/bluetooth/classic/classic.h>
+
 #include "pw_bt.h"
+
+/* [T-0013] 临时开关：经典可连接/可被发现。配对排障期间都关 0，
+ * 否则手机会走经典那条（控制器拒绝，0x0d）而根本不走到 LE。 */
+#ifndef PW_BR_CONNECTABLE
+#  define PW_BR_CONNECTABLE  0
+#endif
+#ifndef PW_BR_DISCOVERABLE
+#  define PW_BR_DISCOVERABLE 0
+#endif
 #include "phywear_ui.h"
 
 int pw_btgatt_start(void);
@@ -65,8 +76,31 @@ int pw_bt_init(void)
 
   if (rc == 0)
     {
+      int brc;
+      int irc;
+
       g_bt_up = 1;
       pw_btgatt_start();
+
+      /* [AGENT-VM] 2026-11-04 T-0009：经典蓝牙要"可连接 + 可被发现"。
+       *
+       * 驱动层（`sf32lb52_bth4.c`）原来把 WRITE_SCAN_ENABLE 吞掉并回成功，
+       * 于是 `bt_br_set_connectable()` 看起来成功、控制器其实没开 page scan
+       * —— 手机搜不到本机。P1–P6 直发探针证明控制器支持这条命令（status
+       * 0x00），已把该命令从 emulate 列表摘掉；这里再显式打开：
+       *   connectable  → page scan（手机能连）
+       *   discoverable → page + inquiry scan（手机能搜到）
+       * 顺序不能反：discoverable 要求 PSCAN 已置位。
+       */
+
+      /* [T-0013] 2026-11-04 15:2x：先不要"可被发现"。实测经典连接被控制器
+       * 拒绝（`evt 0x03 status=0x0d`），而手机一旦在扫描里看到经典身份就会
+       * 去连它，结果连不上、也轮不到 LE。等配对通了、做 PAN 时再打开。 */
+
+      brc = bt_br_set_connectable(PW_BR_CONNECTABLE);
+      irc = bt_br_set_discoverable(PW_BR_DISCOVERABLE);
+      printf("[bt] BR/EDR connectable=%d rc=%d discoverable=%d rc=%d\n",
+             PW_BR_CONNECTABLE, brc, PW_BR_DISCOVERABLE, irc);
     }
 
   return rc;

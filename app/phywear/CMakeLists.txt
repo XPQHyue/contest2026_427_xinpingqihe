@@ -32,6 +32,9 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     lvgl
     SRCS
     phywear.c
+    pw_splash.c
+    pw_power.c
+    pw_icons.c
     phywear_i18n.c
     pw_ai.c
     pw_shot.c
@@ -67,6 +70,11 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     pw_calib.c
     pw_traj.c
     pw_btprobe.c
+    pw_bg.c
+    pw_logo_mi.c
+    pw_logo_ov.c
+    pw_bnep_frame.c
+    pw_bnep.c
     pw_motion.c
     pw_motion_table.c
     pw_motion_lvgl.c
