@@ -649,6 +649,17 @@ static void pw_connected(struct bt_conn *conn, uint8_t err)
   char addr[BT_ADDR_LE_STR_LEN];
   int rc;
 
+  /* [PAN-A] BR/EDR ACL is NOT a GATT link. Running LE param update and MTU
+   * exchange on it returns -22 / -12, overwrites g_conn, and makes the peer
+   * drop the link with reason=0x13 (reports/board_serial3.log:253-262).
+   * The PAN module owns BR connections: print, then leave LE state untouched. */
+  if (bt_conn_is_type(conn, BT_CONN_TYPE_BR))
+    {
+      bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+      printf("[bt] BR/EDR ACL up: %s err=%u (skip GATT)\n", addr, err);
+      return;
+    }
+
   bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
   printf("[bt] B3 connected: %s err=%u\n", addr, err);
   g_nfy_on = 0;
@@ -683,6 +694,14 @@ static void pw_connected(struct bt_conn *conn, uint8_t err)
 static void pw_disconnected(struct bt_conn *conn, uint8_t reason)
 {
   char addr[BT_ADDR_LE_STR_LEN];
+
+  /* [PAN-A] Keep BR/EDR teardown away from the LE/GATT state machine. */
+  if (bt_conn_is_type(conn, BT_CONN_TYPE_BR))
+    {
+      bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
+      printf("[bt] BR/EDR ACL down: %s reason=0x%02x\n", addr, reason);
+      return;
+    }
 
   bt_addr_le_to_str(bt_conn_get_dst(conn), addr, sizeof(addr));
   printf("[bt] B3 disconnected: %s reason=0x%02x\n", addr, reason);

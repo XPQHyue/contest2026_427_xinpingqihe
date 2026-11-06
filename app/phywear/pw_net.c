@@ -39,7 +39,12 @@ int pw_net_up(void)
   printf("[net] 本板无无线网卡（ifconfig: open failed: 2 = ENOENT）⇒ set_wifi 不可达\n");
   printf("[net] 改走 USB CDC-ACM + SLIP：slip_initialize(0, %s)\n", PW_NET_SLIP_DEV);
 
+#ifdef CONFIG_NET_SLIP
   rc = slip_initialize(0, PW_NET_SLIP_DEV);
+#else
+  printf("[pw_net] CONFIG_NET_SLIP 未启用，跳过\n");
+  rc = -ENOSYS;
+#endif
   printf("[net] slip_initialize rc=%d %s\n", rc, rc == 0 ? "(sl0 已注册)" : "(FAILED)");
 
   if (rc == 0)
