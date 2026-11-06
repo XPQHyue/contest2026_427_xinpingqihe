@@ -388,6 +388,7 @@ void pw_power_report(void)
 #define PW_PMUC_CR          (*(volatile uint32_t *)(PW_PMUC_BASE + 0x00))
 #define PW_PMUC_WSR         (*(volatile uint32_t *)(PW_PMUC_BASE + 0x08))
 #define PW_PMUC_WCR         (*(volatile uint32_t *)(PW_PMUC_BASE + 0x0c))
+#define PW_PMUC_WER         (*(volatile uint32_t *)(PW_PMUC_BASE + 0x04))   /* 唤醒使能：bit8=CHG, bit7=LOWBAT */
 #define PW_PMUC_CR_HIBER_EN (1u << 1)
 #define PW_PMUC_CR_REBOOT   (1u << 2)
 
@@ -416,6 +417,12 @@ void pw_power_shutdown(void)
 
   up_irq_save();
 
+  /* 插着 USB 时会被"充电器插入"事件唤醒，表现为"关机后又自己开机"。
+   * 关掉 CHG(bit8) 与 LOWBAT(bit7) 这两个唤醒源，保留按键/RTC 等其余配置。
+   */
+
+  PW_PMUC_WER &= ~((1u << 8) | (1u << 7));
+
   PW_PMUC_WCR = PW_PMUC_WSR;          /* 清 wakeup status（等价 HAL_PMU_CLEAR_WSR） */
 
   /* 先拉低再拉高，产生足够宽的掉电脉冲（SDK 里那 100 ms 是有原因的） */
@@ -428,11 +435,9 @@ void pw_power_shutdown(void)
    * 1 s 后用系统复位兜底，至少不会停在"黑屏不响应"。
    */
 
-  for (volatile uint32_t spin = 0; spin < 60000000u; spin++)
-    {
-    }
-
-  PW_AIRCR = PW_AIRCR_VECTKEY | PW_AIRCR_SYSRESETREQ;
+  /* 不再做"1 秒后复位"兜底：那条兜底会在 hibernate 没生效时把板子重启，
+   * 用户看到的就是"关机后又自己开机"。这里就停住不动。
+   */
 
   for (;;)
     {

@@ -363,6 +363,8 @@ static void pw_pin_sync(void)
  * 以及开机时把它套回去。fps 开关是本文件里的 static，所以放在这里做。
  ****************************************************************************/
 
+volatile int g_store_keep_alive;
+
 static void pw_settings_collect(struct pw_store_state_s *st)
 {
   memset(st, 0, sizeof(*st));
@@ -376,7 +378,26 @@ void pw_settings_save(void)
   struct pw_store_state_s st;
 
   pw_settings_collect(&st);
-  pw_store_save(&st);
+
+  /* [AGENT-VM] 2026-11-05 00:50：先不写 flash。
+   *
+   * 用户实测：中文界面一切正常，切到英文后"关机"就没反应了 —— 差别就在
+   * ui_lang_cb 里这次 pw_settings_save()。config0 的写入在 GUI 线程里
+   * 会把主循环卡住（T-0017 的 ssave 实验：返回 0 但读回 none，且同进程
+   * 访问极易挂死）。既然写不进去还会拖死 UI，就先彻底关掉写入，
+   * 等 TF 卡方案落地再打开。读回那半边（load_async）保留，无副作用。
+   */
+
+  syslog(LOG_INFO, "[settings] save skipped (flash 写入未打通，等 TF 卡)\n");
+
+  /* 但引用不能消失：一删干净，链接器 --gc-sections 会把 MTD/NOR 那一串也收走，
+   * 结果整机起不来（串口停在 SFBL/AB，与 .l1_ret_text 那次同一个坑）。
+   */
+
+  if (g_store_keep_alive)
+    {
+      pw_store_save(&st);
+    }
 }
 
 /* 后台读 flash：**不能在 main 里同步读**。
