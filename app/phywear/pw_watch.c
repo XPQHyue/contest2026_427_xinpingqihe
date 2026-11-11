@@ -100,6 +100,14 @@ static void pw_watch_notify(float range, float seconds, long uptime_s)
   syslog(LOG_WARNING, "[phywear] t=%lds %s\n", uptime_s, text);
   pw_ai_note(text);
 
+/* [PW_AI_AUTORUN] 主动推送默认关闭；设置页打开才真的叫 agent（也就不会自动跳页）。 */
+
+  if (!pw_ai_auto_get())
+    {
+      syslog(LOG_INFO, "[phywear] proactive push off (AI auto-run disabled)\n");
+      return;
+    }
+
 #if defined(CONFIG_EXAMPLES_AI_AGENT_VELA) && PW_WATCH_PROACTIVE
   /* 统一走 pw_ai_ask()（而不是自己再开一个 velaclaw 客户端）：
    *   - 只有一个客户端实例，避免重复注册 tap；

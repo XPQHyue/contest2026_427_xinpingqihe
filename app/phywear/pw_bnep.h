@@ -23,6 +23,24 @@
  * 返回 0 表示已发起流程（异步）；真正的"通了"看 pw_pan_is_up()。 */
 
 int  pw_pan_start(const char *peer_mac);
+
+/* 从 BLE 文本通道触发：有 ACL 就直接开 PAN；没有就先建 BR/EDR ACL，
+ * 等 pw_connected() 里接力。返回 0=已发起，-EAGAIN=已发起建链，其它=失败。 */
+
+int  pw_pan_connect(const char *peer_mac);
+
+/* 已有 ACL 时直接用连接对象起动（BR 地址字符串在 zblue 里可能不可靠，
+ * 这条路径不经过字符串解析）。 */
+
+int  pw_pan_start_conn(struct bt_conn *conn);
+
+/* 启一个 2 s 轮询线程：只要存在 BR/EDR 连接就自动起 PANU。幂等。 */
+
+void pw_pan_poll_start(void);
+
+/* 安全等级达标回调里调用：等 3 s 再起 PANU（事件驱动，代替轮询）。 */
+
+void pw_pan_start_on_security(struct bt_conn *conn);
 int  pw_pan_stop(void);
 bool pw_pan_is_up(void);
 

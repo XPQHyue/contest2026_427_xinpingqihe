@@ -1990,6 +1990,30 @@ int main(int argc, FAR char *argv[])
 
   /* 屏上帧率表（T-0002 追加）：`phywear fps` 打印，`fps on/off` 开关 */
 
+  /* [PW_AI_AUTORUN-CLI] AI 主动实验开关：phywear auto [on|off] */
+
+  if (argc > 1 && strcmp(argv[1], "auto") == 0)
+    {
+      if (argc > 2 && strcmp(argv[2], "on") == 0)
+        {
+          pw_ai_auto_set(true);
+        }
+      else if (argc > 2 && strcmp(argv[2], "off") == 0)
+        {
+          pw_ai_auto_set(false);
+        }
+      else if (argc > 2)
+        {
+          printf("用法：phywear auto [on|off]\n");
+          return EXIT_FAILURE;
+        }
+
+      printf("[auto] AI 主动实验=%s (检测到摆动%s自动跑单摆)\n",
+             pw_ai_auto_get() ? "开" : "关",
+             pw_ai_auto_get() ? "" : "不会");
+      return 0;
+    }
+
   if (argc > 1 && strcmp(argv[1], "fps") == 0)
     {
       int on = 1;

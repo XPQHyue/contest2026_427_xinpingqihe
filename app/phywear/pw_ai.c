@@ -11,6 +11,11 @@
 
 #include <nuttx/config.h>
 
+/* [SIZE-PROBE] 只用来测镜像大小是否影响启动，勿留 */
+const char pw_pad_probe[600] = { 1 };
+const char *pw_pad_probe_use(void) { return pw_pad_probe; }
+
+
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
@@ -338,6 +343,13 @@ bool pw_ai_result_get(const char *kind, FAR struct pw_ai_result_s *out)
   return found;
 }
 
+static void (*g_pw_ai_text_sink)(const char *text);
+
+void pw_ai_set_text_sink(void (*fn)(const char *text))
+{
+  g_pw_ai_text_sink = fn;
+}
+
 void pw_ai_note(const char *text)
 {
   int slot;
@@ -361,6 +373,11 @@ void pw_ai_note(const char *text)
   nxmutex_unlock(&g_pw_ai_lock);
 
   syslog(LOG_INFO, "[phywear] ai-coach: %.160s\n", text);
+
+  if (g_pw_ai_text_sink != NULL && text != NULL)
+    {
+      g_pw_ai_text_sink(text);
+    }
 }
 
 /* 环形日志里第 idx 条（0 = 最新）对应的物理槽位 */
@@ -408,6 +425,56 @@ bool pw_ai_agent_ready(void)
 #if defined(CONFIG_EXAMPLES_AI_AGENT_VELA)
 
 #include <velaclaw/client.h>
+
+/* [PW_AI_AUTORUN] 默认关闭；状态落在 /data/pw_ai_auto（tmpfs），
+ * 让 GUI 进程、串口 CLI、设置页开关看到同一份值。
+ * 评委演示时晃一下表就跳页会很烦，所以默认 0，必须在设置页显式打开。 */
+
+#define PW_AI_AUTORUN_FLAGS "/data/pw_ai_auto"
+
+static bool g_pw_ai_auto;
+static bool g_pw_ai_auto_loaded;
+
+static void pw_ai_auto_load(void)
+{
+  FILE *f = fopen(PW_AI_AUTORUN_FLAGS, "r");
+
+  if (f == NULL)
+    {
+      return;
+    }
+
+  g_pw_ai_auto = (fgetc(f) == '1');
+  g_pw_ai_auto_loaded = true;
+  fclose(f);
+}
+
+bool pw_ai_auto_get(void)
+{
+  if (!g_pw_ai_auto_loaded)
+    {
+      pw_ai_auto_load();
+      g_pw_ai_auto_loaded = true;
+    }
+
+  return g_pw_ai_auto;
+}
+
+void pw_ai_auto_set(bool on)
+{
+  FILE *f;
+
+  g_pw_ai_auto = on;
+  g_pw_ai_auto_loaded = true;
+
+  f = fopen(PW_AI_AUTORUN_FLAGS, "w");
+  if (f != NULL)
+    {
+      fputc(on ? '1' : '0', f);
+      fclose(f);
+    }
+}
+
 
 static velaclaw_client_t *g_pw_ai_client;
 
