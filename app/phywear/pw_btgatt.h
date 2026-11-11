@@ -37,7 +37,7 @@
 #define PW_BT_DIR_SYS  2   /* 连接/断开/订阅等状态变化 */
 
 #define PW_BT_LOG_LINES  10
-#define PW_BT_TEXT_MAX   35   /* 文本特征单条最大字节数（不含结尾 NUL） */
+#define PW_BT_TEXT_MAX   400   /* 文本特征单条最大字节数（不含结尾 NUL） */
 #define PW_BT_PEER_MAX   40   /* "XX:XX:XX:XX:XX:XX (public)" + 余量 */
 
 struct pw_bt_logline_s

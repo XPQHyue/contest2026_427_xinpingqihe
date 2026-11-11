@@ -112,6 +112,15 @@ static void pan_fail(const char *why)
 {
   snprintf(g_pan.last_err, sizeof(g_pan.last_err), "%s", why);
   g_pan.state = PW_PAN_FAIL;
+
+  /* 必须关掉 TAP：否则下一次 TUNSETIFF 会 ENOMEM（单设备驱动被泄漏的 fd 占住）。 */
+
+  if (g_pan.tunfd >= 0)
+    {
+      close(g_pan.tunfd);
+      g_pan.tunfd = -1;
+    }
+
   printf("[pan] FAIL: %s\n", why);
 }
 
@@ -409,6 +418,33 @@ static const struct bt_l2cap_chan_ops g_pan_l2cap_ops =
  * SDP：查 NAP 的 L2CAP PSM
  * ------------------------------------------------------------------------- */
 
+/* 直接连 BNEP 的固定 PSM（不查 SDP）。 */
+
+static int pan_l2cap_start(struct bt_conn *conn, uint16_t psm)
+{
+  int err;
+
+  memset(&g_pan.chan, 0, sizeof(g_pan.chan));
+  g_pan.chan.chan.ops = &g_pan_l2cap_ops;
+  /* [修复#3] l2cap_br.c:769-770 只在 rx.mtu != 672 时下发 MTU 选项；
+   * memset 后是 0 → 我们会在 wire 上宣告 MTU=0，对端一帧都不发。 */
+  g_pan.chan.rx.mtu = 1691;
+  /* [修复#13] 安全等级：memset 后是 0，l2cap_br.c:1733-1735 会抬到 L1(不加密)。 */
+  g_pan.chan.required_sec_level = BT_SECURITY_L1; /* [实验] 先不做加密，验证 BNEP 数据面 */
+  g_pan.psm = psm;
+  g_pan.state = PW_PAN_L2CAP;
+
+  printf("[pan] L2CAP connect psm=0x%04x\n", psm);
+  err = bt_l2cap_chan_connect(conn, &g_pan.chan.chan, psm);
+  if (err < 0)
+    {
+      printf("[pan] l2cap connect err=%d\n", err);
+      pan_fail("l2cap connect failed");
+    }
+
+  return err;
+}
+
 static uint8_t pan_sdp_done(struct bt_conn *conn, struct bt_sdp_client_result *result,
                             const struct bt_sdp_discover_params *params)
 {
@@ -435,21 +471,8 @@ static uint8_t pan_sdp_done(struct bt_conn *conn, struct bt_sdp_client_result *r
   g_pan.psm = psm;
   printf("[pan] SDP ok psm=0x%04x\n", psm);
 
-  memset(&g_pan.chan, 0, sizeof(g_pan.chan));
-  g_pan.chan.chan.ops = &g_pan_l2cap_ops;
-  /* [修复#3] l2cap_br.c:769-770 只在 rx.mtu != 672 时下发 MTU 选项；
-   * memset 后是 0 → 我们会在 wire 上宣告 MTU=0，对端一帧都不发。 */
-  g_pan.chan.rx.mtu = 1691;
-  /* [修复#13] 安全等级：memset 后是 0，l2cap_br.c:1733-1735 会抬到 L1(不加密)。 */
-  g_pan.chan.required_sec_level = BT_SECURITY_L2;
-  g_pan.state = PW_PAN_L2CAP;
-
-  err = bt_l2cap_chan_connect(conn, &g_pan.chan.chan, psm);
-  if (err < 0)
-    {
-      printf("[pan] l2cap connect err=%d\n", err);
-      pan_fail("l2cap connect failed");
-    }
+  pan_l2cap_start(conn, psm);
+  (void)err;
 
   return BT_SDP_DISCOVER_UUID_STOP;
 }
@@ -571,6 +594,8 @@ static void pan_reset(void)
   g_pan.psm   = PW_PAN_PSM_UNKNOWN;
 }
 
+static int pan_begin_with_conn(void);
+
 int pw_pan_start(const char *peer_mac)
 {
   bt_addr_t addr;
@@ -605,23 +630,205 @@ int pw_pan_start(const char *peer_mac)
       return -ENOTCONN;
     }
 
+  return pan_begin_with_conn();
+}
+
+/* 复用 pw_pan_start 剩下的步骤（tun + SDP + 线程），conn 已存在。 */
+
+static int pan_begin_with_conn(void)
+{
+  int err;
+
   if (pan_tun_open() < 0)
     {
       pan_fail("tun open failed");
       return -EIO;
     }
 
-  g_pan.state = PW_PAN_SDP;
-  err = bt_sdp_discover(g_pan.conn, &g_pan_sdp_params);
-  if (err < 0)
+  err = pan_l2cap_start(g_pan.conn, PW_PAN_PSM_BNEP);
+  pan_thread_start();
+  return err;
+}
+
+/* 直接拿 ACL 连接对象起动 PANU（不解析地址字符串）。 */
+
+int pw_pan_start_conn(struct bt_conn *conn)
+{
+  if (conn == NULL)
     {
-      printf("[pan] bt_sdp_discover err=%d\n", err);
-      pan_fail("sdp discover failed");
-      return err;
+      return -EINVAL;
     }
 
-  pan_thread_start();
-  return 0;
+  if (g_pan.state != PW_PAN_IDLE && g_pan.state != PW_PAN_FAIL)
+    {
+      printf("[pan] already %s\n", pan_state_name(g_pan.state));
+      return -EBUSY;
+    }
+
+  pan_reset();
+  g_pan.conn = bt_conn_ref(conn);       /* 自己持一份引用，pan_reset 里会 unref */
+  printf("[pan] start via conn\n");
+  return pan_begin_with_conn();
+}
+
+/* [PAN-BLE] 用 BLE 文本通道触发 PANU：没有 ACL 就先建 ACL。
+ * ACL 建好后 pw_connected() 里的 pw_pan_auto_start() 会接手。 */
+
+int pw_pan_connect(const char *peer_mac)
+{
+  bt_addr_t addr;
+  FAR struct bt_conn *conn;
+  int err;
+
+  if (peer_mac == NULL || peer_mac[0] == '\0')
+    {
+      return -EINVAL;
+    }
+
+  /* "pan:off" —— 停掉 PANU 并释放连接引用（调试/重试用）。 */
+  if (strcmp(peer_mac, "off") == 0)
+    {
+      printf("[pan] connect: stop requested\n");
+      pw_pan_stop();
+      return 0;
+    }
+
+  err = bt_addr_from_str(peer_mac, &addr);
+
+  conn = bt_conn_lookup_addr_br(&addr);
+  if (conn != NULL)
+    {
+      bt_conn_unref(conn);
+      printf("[pan] connect: ACL exists, start PANU to %s\n", peer_mac);
+      return pw_pan_start(peer_mac);
+    }
+
+  printf("[pan] connect: no ACL, creating BR/EDR link to %s\n", peer_mac);
+  pw_pan_stop();                        /* 释放上一次可能残留的引用 */
+  conn = bt_conn_create_br(&addr, BT_BR_CONN_PARAM_DEFAULT);
+  if (conn == NULL)
+    {
+      printf("[pan] connect: bt_conn_create_br failed\n");
+      return -EIO;
+    }
+
+  bt_conn_unref(conn);
+  return -EAGAIN;
+}
+
+/* [PAN-POLL] 不依赖连接回调：每 2 s 看一次 BR/EDR 连接，有就起 PANU。 */
+
+static void pan_poll_cb(struct bt_conn *conn, void *data)
+{
+  FAR struct bt_conn **out = (FAR struct bt_conn **)data;
+
+  if (*out == NULL)
+    {
+      *out = bt_conn_ref(conn);
+    }
+}
+
+static void *pw_pan_poll_thread(void *arg)
+{
+  (void)arg;
+
+  for (;;)
+    {
+      sleep(2);
+
+      if (g_pan.state == PW_PAN_IDLE || g_pan.state == PW_PAN_FAIL)
+        {
+          FAR struct bt_conn *conn = NULL;
+          int rc;
+
+          bt_conn_foreach(BT_CONN_TYPE_BR, pan_poll_cb, &conn);
+          if (conn != NULL)
+            {
+              printf("[pan] poll: BR conn found, settle 4s\n");
+              sleep(4);
+              printf("[pan] poll: starting PANU\n");
+              rc = pw_pan_start_conn(conn);
+              bt_conn_unref(conn);
+              printf("[pan] poll: rc=%d\n", rc);
+            }
+        }
+    }
+
+  return NULL;
+}
+
+void pw_pan_poll_start(void)
+{
+  static bool started;
+  pthread_t th;
+
+  if (started)
+    {
+      return;
+    }
+
+  if (pthread_create(&th, NULL, pw_pan_poll_thread, NULL) == 0)
+    {
+      pthread_detach(th);
+      started = true;
+      printf("[pan] poll thread started (2 s)\n");
+    }
+}
+
+/* [PAN-SEC] 对齐 小智 的时序：加密/配对完成后再等 3 s 才连 PAN
+ * （SDK 例程注释原话 "Trigger PAN connection after PAN_TIMER_MS period to
+ * avoid SDP confliction"，PAN_TIMER_MS = 3000）。 */
+
+struct pan_delay_arg
+{
+  struct bt_conn *conn;
+};
+
+static void *pan_delay_thread(void *arg)
+{
+  struct pan_delay_arg *a = (struct pan_delay_arg *)arg;
+  int rc;
+
+  sleep(3);
+  printf("[pan] security-ready: starting PANU after 3 s\n");
+  rc = pw_pan_start_conn(a->conn);
+  printf("[pan] security-ready: rc=%d\n", rc);
+  bt_conn_unref(a->conn);
+  free(a);
+  return NULL;
+}
+
+void pw_pan_start_on_security(struct bt_conn *conn)
+{
+  struct pan_delay_arg *a;
+  pthread_t th;
+
+  if (conn == NULL)
+    {
+      return;
+    }
+
+  if (g_pan.state != PW_PAN_IDLE && g_pan.state != PW_PAN_FAIL)
+    {
+      return;
+    }
+
+  a = (struct pan_delay_arg *)calloc(1, sizeof(*a));
+  if (a == NULL)
+    {
+      return;
+    }
+
+  a->conn = bt_conn_ref(conn);
+  if (pthread_create(&th, NULL, pan_delay_thread, a) == 0)
+    {
+      pthread_detach(th);
+    }
+  else
+    {
+      bt_conn_unref(a->conn);
+      free(a);
+    }
 }
 
 int pw_pan_stop(void)

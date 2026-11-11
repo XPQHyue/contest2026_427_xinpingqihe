@@ -738,6 +738,12 @@ static void pw_security_changed(struct bt_conn *conn, bt_security_t level,
 {
   printf("[bt] security level=%d err=%d\n", (int)level, (int)err);
   pw_bt_log(PW_BT_DIR_SYS, "security changed");
+
+  /* [PAN-SEC] 经典链路加密/配对完成 -> 3 s 后起 PANU（小智同款时序）。 */
+  if (err == 0 && bt_conn_is_type(conn, BT_CONN_TYPE_BR))
+    {
+      pw_pan_start_on_security(conn);
+    }
 }
 
 static void pw_auth_passkey_display(struct bt_conn *conn, unsigned int passkey)

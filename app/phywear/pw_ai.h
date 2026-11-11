@@ -94,6 +94,11 @@ bool pw_ai_agent_ready(void);
 
 void pw_ai_note(const char *text);
 
+/* 注册一个"文本出口"：pw_ai_note() 每收到一条文本就调它一次。
+ * 用于把 Agent 的回复推给蓝牙文本特征（pw_bt_send_text）。NULL 表示注销。 */
+
+void pw_ai_set_text_sink(void (*fn)(const char *text));
+
 /* 消息日志读取（GUI 线程）。idx 0 = 最新一条；越界返回 NULL。 */
 
 int         pw_ai_log_count(void);
@@ -147,3 +152,9 @@ int pw_ai_result_seq(const char *kind);
 bool pw_ai_result_get(const char *kind, FAR struct pw_ai_result_s *out);
 
 #endif /* __APPS_EXAMPLES_PHYWEAR_PW_AI_H */
+
+/* [PW_AI_AUTORUN] AI 主动实验开关（默认关）：检测到持续摆动时是否自动跑单摆实验。
+ * 关的时候事件只进 AI 日志，不触发 agent，也不会跳页。 */
+
+bool pw_ai_auto_get(void);
+void pw_ai_auto_set(bool on);

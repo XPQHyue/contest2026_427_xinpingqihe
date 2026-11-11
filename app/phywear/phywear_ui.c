@@ -35,6 +35,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#include <syslog.h>
 
 #include <lvgl/lvgl.h>
 
@@ -1699,6 +1700,20 @@ static void ui_theme_cb(lv_event_t *e)
   lv_async_call(ui_theme_async, NULL);
 }
 
+/* [PW_AI_AUTORUN] AI 主动实验开关：关 → 只记日志；开 → 检测到摆动自动跑单摆。 */
+
+static void ui_ai_auto_async(void *arg)
+{
+  pw_scr_open(pw_settings_screen());
+}
+
+static void ui_ai_auto_cb(lv_event_t *e)
+{
+  pw_ai_auto_set(lv_event_get_user_data(e) != NULL);
+  syslog(LOG_INFO, "[settings] ai auto-run = %d\n", pw_ai_auto_get() ? 1 : 0);
+  lv_async_call(ui_ai_auto_async, NULL);
+}
+
 lv_obj_t *pw_settings_screen(void)
 {
   lv_obj_t *scr;
@@ -1776,6 +1791,34 @@ lv_obj_t *pw_settings_screen(void)
                      g_theme == PW_THEME_LIST ? PW_ACC_ACTIVE : PW_COL_DIM);
   lv_obj_center(lab);
   lv_obj_add_event_cb(btn, ui_theme_cb, LV_EVENT_CLICKED, (void *)1);
+
+  /* --- AI 主动实验（默认关） --- */
+
+  card = pw_card_new(cont, PW_SCREEN_W - 2 * MENU_X0, 92, PW_COL_CARD);
+  lv_obj_set_pos(card, MENU_X0, MENU_GAP + 348);
+
+  pw_section_bar(card, PW_ACC_ACTIVE, 16, 14);
+  lab = pw_label_new(card, "AI auto-run", PW_FNT_MED, PW_COL_TEXT);
+  lv_obj_set_pos(lab, 26, 10);
+
+  lab = pw_label_new(card, "swing -> run pendulum", PW_FNT_BODY, PW_COL_FAINT);
+  lv_obj_set_pos(lab, 16, 38);
+
+  btn = pw_card_new(card, 120, 34,
+                    !pw_ai_auto_get() ? PW_COL_CARD_LT : PW_COL_CARD);
+  lv_obj_set_pos(btn, 16, 54);
+  lab = pw_label_new(btn, "Off", PW_FNT_MED,
+                     !pw_ai_auto_get() ? PW_ACC_ACTIVE : PW_COL_DIM);
+  lv_obj_center(lab);
+  lv_obj_add_event_cb(btn, ui_ai_auto_cb, LV_EVENT_CLICKED, NULL);
+
+  btn = pw_card_new(card, 120, 34,
+                    pw_ai_auto_get() ? PW_COL_CARD_LT : PW_COL_CARD);
+  lv_obj_set_pos(btn, 168, 54);
+  lab = pw_label_new(btn, "On", PW_FNT_MED,
+                     pw_ai_auto_get() ? PW_ACC_ACTIVE : PW_COL_DIM);
+  lv_obj_center(lab);
+  lv_obj_add_event_cb(btn, ui_ai_auto_cb, LV_EVENT_CLICKED, (void *)1);
 
   /* --- 关于 --- */
 

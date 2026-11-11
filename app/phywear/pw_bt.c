@@ -101,6 +101,15 @@ int pw_bt_init(void)
       irc = bt_br_set_discoverable(PW_BR_DISCOVERABLE);
       printf("[bt] BR/EDR connectable=%d rc=%d discoverable=%d rc=%d\n",
              PW_BR_CONNECTABLE, brc, PW_BR_DISCOVERABLE, irc);
+
+      /* [PAN-COD] 小智把 CoD 设成 Network + LAN/NAP；我们对端才愿意按
+       * "网络设备"对待。CFG_BT_COD=0 时链路上是 0x000000。 */
+
+      {
+        int cod_rc = bt_br_set_class_of_device(0x020200);
+
+        printf("[bt] CoD=0x020200 rc=%d\n", cod_rc);
+      }
     }
 
   return rc;
