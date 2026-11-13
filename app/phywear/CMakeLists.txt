@@ -78,6 +78,7 @@ if(CONFIG_EXAMPLES_PHYWEAR)
     pw_logo_ov.c
     pw_bnep_frame.c
     pw_bnep.c
+    pw_relay.c
     pw_motion.c
     pw_motion_table.c
     pw_motion_lvgl.c

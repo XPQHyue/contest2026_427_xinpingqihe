@@ -93,6 +93,43 @@
 #include "pw_power.h"
 #include "pw_btprobe.h"
 #include "pw_bnep.h"
+#if defined(__has_include)
+#  if __has_include("pw_llm_default.h")
+#    include "pw_llm_default.h"
+#  endif
+#endif
+
+
+void cmd_set_llm(int argc, char **argv);
+
+static void pw_llm_apply_builtin(void)
+{
+#if defined(PW_LLM_URL) && defined(PW_LLM_KEY)
+  static int done;
+  char *av[5];
+
+  if (done)
+    {
+      return;
+    }
+
+  done = 1;
+  av[0] = (char *)"set_llm";
+  av[1] = (char *)PW_LLM_URL;
+  av[2] = (char *)PW_LLM_MODEL;
+  av[3] = (char *)PW_LLM_KEY;
+  av[4] = NULL;
+  cmd_set_llm(4, av);
+  printf("[phywear] LLM backend\n");
+#endif
+}
+
+
+
+int agent_cli_submit(const char *text);
+
+
+
 #include "pw_net.h"
 #include "pw_bt.h"
 #include "pw_btgatt.h"
@@ -114,6 +151,7 @@
 #include "phywear_life.h"
 #include "phywear_i18n.h"
 #include "pw_ai.h"
+#include "pw_relay.h"
 #include "pw_shot.h"
 #include "pw_skill.h"
 #include "pw_watch.h"
@@ -1562,6 +1600,9 @@ static int phywear_remote_shot(const char *page)
 
 int main(int argc, FAR char *argv[])
 {
+  pw_llm_apply_builtin();
+  pw_relay_sub_start();
+
   lv_nuttx_dsc_t info;
   lv_nuttx_result_t result;
   int bench_interval = 0;
@@ -1991,6 +2032,72 @@ int main(int argc, FAR char *argv[])
   /* 屏上帧率表（T-0002 追加）：`phywear fps` 打印，`fps on/off` 开关 */
 
   /* [PW_AI_AUTORUN-CLI] AI 主动实验开关：phywear auto [on|off] */
+
+  if (argc > 2 && strcmp(argv[1], "ask") == 0)
+    {
+      char *text = malloc(512);
+      size_t off = 0;
+      int i;
+
+      if (!text)
+        {
+          return -ENOMEM;
+        }
+
+      text[0] = '\0';
+      for (i = 2; i < argc && off < 500; i++)
+        {
+          int n = snprintf(text + off, 512 - off, "%s%s", (i > 2) ? " " : "",
+                           argv[i]);
+          if (n > 0)
+            {
+              off += (size_t)n;
+            }
+        }
+
+      printf("[ask] relay rc=%d\n", pw_relay_ask(text));
+      free(text);
+      return 0;
+    }
+
+  if (argc > 2 && strcmp(argv[1], "llm") == 0)
+    {
+      char *av[6];
+      int ac = argc - 1;
+      int i;
+
+      if (ac > 5)
+        {
+          ac = 5;
+        }
+
+      av[0] = (char *)"set_llm";
+      for (i = 1; i < ac; i++)
+        {
+          av[i] = argv[i + 1];
+        }
+      av[ac] = NULL;
+
+      cmd_set_llm(ac, av);
+      return 0;
+    }
+
+  if (argc > 1 && strcmp(argv[1], "llmapply") == 0)
+    {
+#if defined(PW_LLM_URL) && defined(PW_LLM_KEY)
+      char *av[5];
+
+      av[0] = (char *)"set_llm";
+      av[1] = (char *)PW_LLM_URL;
+      av[2] = (char *)PW_LLM_MODEL;
+      av[3] = (char *)PW_LLM_KEY;
+      av[4] = NULL;
+      cmd_set_llm(4, av);
+#else
+      printf("no built-in LLM config (pw_llm_default.h missing)\n");
+#endif
+      return 0;
+    }
 
   if (argc > 1 && strcmp(argv[1], "auto") == 0)
     {
