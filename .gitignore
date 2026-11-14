@@ -1,6 +1,42 @@
-# 本地凭据 / 构建产物
+# ============================================================
+# contest2026_427_xinpingqihe — .gitignore
+#
+# 忽略编译产物/本机杂项，避免误提交。
+# 注意：logs/ 下导出的 AI Coding 日志必须提交，不要忽略！
+# ============================================================
+
+# Build artifacts
+build/
+out/
+cmake_out/
+*.o
+*.a
+*.so
+*.elf
+*.hex
+*.map
+*.bin
+# 例外：烧录必需 —— ROM 先读 0x12000000 的 FlashTable，缺了板子只会打印 SFBL
+!board/ftab_openvela.bin
+*.img
+*.dfu
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# Logs/caches (keep our submitted logs/ but ignore scratch)
+*.pyc
+__pycache__/
+
+# Local scratch (DO NOT ignore logs/ itself)
+/tmp/
+
+# 本地凭据 / 构建产物（2026-11-14 追加）
 pw_llm_default.h
-*.bak
-*.bak-*
 cmake_out/
 build/
+*.bak-*
