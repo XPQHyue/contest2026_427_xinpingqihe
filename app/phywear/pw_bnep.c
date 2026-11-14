@@ -28,8 +28,12 @@
 #include <unistd.h>
 
 #include <sys/ioctl.h>
+#include <pthread.h>
+#include <netutils/dhcpc.h>
+#include <netutils/netlib.h>
 
 #include <net/if.h>
+#include <net/route.h>
 #include <nuttx/net/tun.h>
 
 #include <zephyr/kernel.h>
@@ -105,6 +109,126 @@ static const char *pan_state_name(enum pw_pan_state s)
       case PW_PAN_UP:     return "up";
       case PW_PAN_FAIL:   return "fail";
       default:            return "?";
+    }
+}
+
+/* [2026-11-12] BNEP 进 UP 后自动跑 DHCP：用 NuttX 自带的 dhcpc 库
+ * （dhcpc_request 内部会 netlib_set_ipv4addr，所以不需要再手工配 IP）。 */
+static void *pan_dhcp_thread(void *arg)
+{
+  static const uint8_t mac[6] = { 0x02, 0x00, 0x00, 0x50, 0x4e, 0x01 };
+  struct dhcpc_state  ds;
+  void               *h;
+
+  (void)arg;
+  memset(&ds, 0, sizeof(ds));
+  h = dhcpc_open(PW_PAN_TUN_NAME, mac, sizeof(mac));
+  if (h == NULL)
+    {
+      printf("[pan] dhcpc_open failed\n");
+      return NULL;
+    }
+
+  if (dhcpc_request(h, &ds) == 0)
+    {
+      printf("[pan] DHCP ok ip=%s mask=%s gw=%s dns=%s\n",
+             inet_ntoa(ds.ipaddr), inet_ntoa(ds.netmask),
+             inet_ntoa(ds.default_router), inet_ntoa(ds.dnsaddr));
+
+      /* DHCP 只给地址；掩码/默认网关要自己落到接口上，否则外网一律 ENETUNREACH。
+       * 用 NuttX 官方 netlib：内部走 netlib_setifstatus/路由表，别手写 ifreq。 */
+      {
+        struct in_addr a;
+
+        a.s_addr = ds.netmask.s_addr;
+        printf("[pan] set netmask rc=%d\n", netlib_set_ipv4netmask("tun0", &a));
+
+        a.s_addr = ds.default_router.s_addr;
+        printf("[pan] set gw rc=%d\n", netlib_set_dripv4addr("tun0", &a));
+
+        int rs = socket(AF_INET, SOCK_DGRAM, 0);
+        if (rs >= 0)
+          {
+            struct ifreq ifm;
+            memset(&ifm, 0, sizeof(ifm));
+            strncpy(ifm.ifr_name, "tun0", IFNAMSIZ - 1);
+            ifm.ifr_mtu = 400;
+            printf("[pan] set mtu rc=%d\n",
+                   ioctl(rs, SIOCSIFMTU, (unsigned long)&ifm));
+            close(rs);
+          }
+      }
+    }
+  else
+    {
+      printf("[pan] DHCP failed errno=%d\n", errno);
+    }
+
+  dhcpc_close(h);
+  return NULL;
+}
+
+static void pan_start_dhcp(void)
+{
+  pthread_t tid;
+  pthread_attr_t attr;
+
+  pthread_attr_init(&attr);
+  pthread_attr_setstacksize(&attr, 4096);
+  if (pthread_create(&tid, &attr, pan_dhcp_thread, NULL) == 0)
+    {
+      pthread_detach(tid);
+      printf("[pan] DHCP thread started (udhcpc equivalent)\n");
+  /* DSH-STATIC-IP: 自研 NAP 的地址是固定的，先把静态地址/网关落好，
+     这样即使 DHCP 拿不到 OFFER 也有一条可用的数据面。 */
+  {
+    struct in_addr a;
+    a.s_addr = htonl(0xC0A8320DUL);          /* 192.168.50.13 */
+    printf("[pan] static ip rc=%d\n", netlib_set_ipv4addr("tun0", &a));
+    a.s_addr = htonl(0xC0A83201UL);          /* 255.255.255.0 的掩码会用下面这行 */
+    {
+      struct in_addr m;
+      m.s_addr = htonl(0xFFFFFF00UL);
+      printf("[pan] static mask rc=%d\n", netlib_set_ipv4netmask("tun0", &m));
+    }
+    printf("[pan] static gw rc=%d\n", netlib_set_dripv4addr("tun0", &a));
+  }
+
+
+  /* [2026-11-12 诊断] 手工发一帧 ARP request，验证"板子 -> NAP"数据面 */
+  {
+    static uint8_t s_arp[42];
+    struct net_buf *nb;
+    memset(s_arp, 0, sizeof(s_arp));
+    s_arp[0] = 0x00;                     /* BNEP general ethernet */
+    s_arp[1] = 0xff; s_arp[2] = 0xff; s_arp[3] = 0xff;
+    s_arp[4] = 0xff; s_arp[5] = 0xff; s_arp[6] = 0xff;
+    s_arp[7] = 0x02; s_arp[8] = 0x00; s_arp[9] = 0x00;
+    s_arp[10] = 0x50; s_arp[11] = 0x4e; s_arp[12] = 0x01;
+    s_arp[13] = 0x08; s_arp[14] = 0x06;
+    s_arp[15] = 0x00; s_arp[16] = 0x01;
+    s_arp[17] = 0x08; s_arp[18] = 0x00;
+    s_arp[19] = 6; s_arp[20] = 4;
+    s_arp[21] = 0x00; s_arp[22] = 0x01;
+    memcpy(&s_arp[23], &s_arp[7], 6);
+    s_arp[29] = 192; s_arp[30] = 168; s_arp[31] = 50; s_arp[32] = 2;
+    s_arp[37] = 192; s_arp[38] = 168; s_arp[39] = 50; s_arp[40] = 1;
+    nb = net_buf_alloc(&pw_pan_pool, K_NO_WAIT);
+    if (nb != NULL)
+      {
+        net_buf_add_mem(nb, s_arp, sizeof(s_arp));
+        printf("[pan] probe ARP send rc=%d\n",
+               bt_l2cap_chan_send(&g_pan.chan.chan, nb));
+      }
+    else
+      {
+        printf("[pan] probe ARP: no buf\n");
+      }
+  }
+    }
+  else
+    {
+      printf("[pan] DHCP thread create failed\n");
     }
 }
 
@@ -225,7 +349,7 @@ static int pan_tun_open(void)
 
   memset(&ifr, 0, sizeof(ifr));
   strncpy(ifr.ifr_name, PW_PAN_TUN_NAME, sizeof(ifr.ifr_name) - 1);
-  ifr.ifr_flags = IFF_TAP | IFF_NO_PI;          /* [已核实] net/if.h: #define ifr_flags ifr_ifru.ifru_flags (uint32_t) */
+  ifr.ifr_flags = IFF_TAP | IFF_NO_PI | IFF_UP;   /* [2026-11-12] 建接口时直接拉起，避免二次 ioctl */          /* [已核实] net/if.h: #define ifr_flags ifr_ifru.ifru_flags (uint32_t) */
 
   if (ioctl(fd, TUNSETIFF, (unsigned long)&ifr) < 0)
     {
@@ -236,6 +360,56 @@ static int pan_tun_open(void)
 
   g_pan.tunfd = fd;
   printf("[pan] tun ready: %s (tap)\n", ifr.ifr_name);
+
+  /* [2026-11-12] tun 的 fd 不支持 SIOCGIFFLAGS/SIOCSIFFLAGS（ENOTTY），
+   * 必须用 AF_INET socket 去改接口标志；否则 tun0 一直是 DOWN，
+   * dhcpc 的 sendto 会 EHOSTUNREACH(113)。 */
+  {
+    int ns = socket(AF_INET, SOCK_DGRAM, 0);
+    if (ns >= 0)
+      {
+        struct ifreq ifs;
+        memset(&ifs, 0, sizeof(ifs));
+        strncpy(ifs.ifr_name, PW_PAN_TUN_NAME, sizeof(ifs.ifr_name) - 1);
+        ifs.ifr_flags = IFF_UP;
+        if (ioctl(ns, SIOCSIFFLAGS, (unsigned long)&ifs) < 0)
+          {
+            printf("[pan] SIOCSIFFLAGS err=%d\n", errno);
+          }
+        else
+          {
+            memset(&ifs, 0, sizeof(ifs));
+            strncpy(ifs.ifr_name, PW_PAN_TUN_NAME, sizeof(ifs.ifr_name) - 1);
+            if (ioctl(ns, SIOCGIFFLAGS, (unsigned long)&ifs) == 0)
+              {
+                printf("[pan] tun0 flags=0x%04x (IFF_UP=%d)\n",
+                       (unsigned)ifs.ifr_flags, !!(ifs.ifr_flags & IFF_UP));
+              }
+          }
+        /* [2026-11-12] tun0 默认 MAC 全 0，导致 ARP 应答里发送方 MAC 为 0，
+         * 对端 ARP 表把 .13 映射到 00:00:00:00:00:00，之后 ICMP 全被丢弃。
+         * 这里显式设置 L2 地址，与 DHCP client 使用的一致。 */
+        memset(&ifs, 0, sizeof(ifs));
+        strncpy(ifs.ifr_name, PW_PAN_TUN_NAME, sizeof(ifs.ifr_name) - 1);
+        ifs.ifr_hwaddr.sa_family = 1; /* ARPHRD_ETHER */
+        ifs.ifr_hwaddr.sa_data[0] = 0x02;
+        ifs.ifr_hwaddr.sa_data[1] = 0x00;
+        ifs.ifr_hwaddr.sa_data[2] = 0x00;
+        ifs.ifr_hwaddr.sa_data[3] = 0x50;
+        ifs.ifr_hwaddr.sa_data[4] = 0x4e;
+        ifs.ifr_hwaddr.sa_data[5] = 0x01;
+        if (ioctl(ns, SIOCSIFHWADDR, (unsigned long)&ifs) < 0)
+          {
+            printf("[pan] SIOCSIFHWADDR err=%d\n", errno);
+          }
+        else
+          {
+            printf("[pan] tun0 mac=02:00:00:50:4e:01\n");
+          }
+
+        close(ns);
+      }
+  }
 
   /* 注意：接口地址由 `dhcpc -i tun0` 或手动 ifconfig 决定，本模块不配 IP。
    * 建议在 `phywear pan on` 成功后由 NSH 侧跑一次 dhcpc（见 BOARD §12 验收）。
@@ -271,6 +445,12 @@ static int pan_on_frame(const uint8_t *data, uint32_t len)
 
   if (hdr.type == PW_BNEP_CONTROL)
     {
+      { /* CTLRAW: dump raw bytes for diagnosis */
+        uint32_t i, n = len < 10 ? len : 10;
+        printf("[pan] ctlraw len=%u:", (unsigned)len);
+        for (i = 0; i < n; i++) printf(" %02x", data[i]);
+        printf("\n");
+      }
       switch (hdr.ctl)
         {
           case PW_BNEP_CTL_SETUP_RSP:
@@ -302,6 +482,7 @@ static int pan_on_frame(const uint8_t *data, uint32_t len)
                     {
                       printf("[pan] filter ok -> UP\n");
                       g_pan.state = PW_PAN_UP;
+                      pan_start_dhcp();
                     }
                   else
                     {
@@ -333,8 +514,21 @@ static int pan_on_frame(const uint8_t *data, uint32_t len)
       return 0;
     }
 
+  {
+    static int dbg_n;
+    if (dbg_n < 4)
+      {
+        uint32_t i, n = hdr.ethlen < 20 ? hdr.ethlen : 20;
+        printf("[pan] data len=%u ethlen=%u:", (unsigned)len, (unsigned)hdr.ethlen);
+        for (i = 0; i < n; i++) printf(" %02x", hdr.eth[i]);
+        printf("\n");
+        dbg_n++;
+      }
+  }
+
   if (write(g_pan.tunfd, hdr.eth, hdr.ethlen) != (ssize_t)hdr.ethlen)
     {
+      printf("[pan] tun write err=%d (want %u)\n", errno, (unsigned)hdr.ethlen);
       g_pan.rx_drop++;
       return 0;
     }
@@ -429,6 +623,8 @@ static int pan_l2cap_start(struct bt_conn *conn, uint16_t psm)
   /* [修复#3] l2cap_br.c:769-770 只在 rx.mtu != 672 时下发 MTU 选项；
    * memset 后是 0 → 我们会在 wire 上宣告 MTU=0，对端一帧都不发。 */
   g_pan.chan.rx.mtu = 1691;
+      /* L2CAP BR 的 tx 默认只有 672：TLS 记录超过它就会 -EMSGSIZE(90) */
+      g_pan.chan.tx.mtu = 487;
   /* [修复#13] 安全等级：memset 后是 0，l2cap_br.c:1733-1735 会抬到 L1(不加密)。 */
   g_pan.chan.required_sec_level = BT_SECURITY_L1; /* [实验] 先不做加密，验证 BNEP 数据面 */
   g_pan.psm = psm;

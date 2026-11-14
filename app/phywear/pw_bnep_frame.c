@@ -120,6 +120,9 @@ int32_t pw_bnep_build_setup_req(uint8_t *buf, uint32_t cap,
 
 int32_t pw_bnep_parse_setup_rsp(const uint8_t *buf, uint32_t len, uint16_t *code)
 {
+  uint32_t usize;
+  uint8_t  ucode;
+
   if (buf == NULL || code == NULL || len < 4)
     {
       return -EINVAL;
@@ -130,7 +133,20 @@ int32_t pw_bnep_parse_setup_rsp(const uint8_t *buf, uint32_t len, uint16_t *code
       return -EINVAL;
     }
 
-  *code = bnep_be16(&buf[2]);
+  /* [关键修复·2026-11-12] SETUP_CONNECTION_RESPONSE 的格式是
+   *   <type> <ctl> <dst UUID> <src UUID> <result:2>
+   * 结果码在最后，不是紧跟 ctl。UUID 长度由 type 高 3 位决定：
+   * 1 -> 2 字节，2 -> 4 字节，4 -> 16 字节。
+   * 之前按 <ctl><result> 解析，把 dst UUID 的 0x1116 当成了结果码。 */
+
+  ucode = (uint8_t)(buf[0] >> 5);
+  usize = (ucode == 1) ? 2u : (ucode == 2) ? 4u : (ucode == 4) ? 16u : 0u;
+  if (usize == 0u || len < (2u + 2u * usize + 2u))
+    {
+      return -EINVAL;
+    }
+
+  *code = bnep_be16(&buf[2u + 2u * usize]);
   return 0;
 }
 
