@@ -22,12 +22,18 @@
 #define PW_BNEP_COMPRESSED_DST_ONLY 0x04
 
 /* ---- 控制类型（控制包 buf[0] 的低 5 位之后那一字节） ---- */
-#define PW_BNEP_CTL_SETUP_REQ       0x00
-#define PW_BNEP_CTL_SETUP_RSP       0x01
-#define PW_BNEP_CTL_FILTER_SET      0x02
-#define PW_BNEP_CTL_FILTER_RSP      0x03
-#define PW_BNEP_CTL_MFILTER_SET     0x04
-#define PW_BNEP_CTL_MFILTER_RSP     0x05
+/* [关键修复·2026-11-12] BNEP 控制帧类型是 1 基编号（Android bnep_api.h /
+ * BlueZ 内核 bnep 都是这么发的）：1=SETUP_CONNECTION_REQUEST，
+ * 2=SETUP_CONNECTION_RESPONSE，3=FILTER_NET_TYPE_SET，4=FILTER_NET_TYPE_RSP。
+ * 我们之前用 0 基，导致：① 发出的 SETUP_REQ 被对端当作未知类型；
+ * ② 对端回的 SETUP_RSP(0x02) 被我们当成 FILTER_SET 忽略掉。
+ * 铁证：btmon 抓到 01 02 00 04 = SETUP_RSP + result 0x0004(not allowed)。 */
+#define PW_BNEP_CTL_SETUP_REQ       0x01
+#define PW_BNEP_CTL_SETUP_RSP       0x02
+#define PW_BNEP_CTL_FILTER_SET      0x03
+#define PW_BNEP_CTL_FILTER_RSP      0x04
+#define PW_BNEP_CTL_MFILTER_SET     0x05
+#define PW_BNEP_CTL_MFILTER_RSP     0x06
 
 /* UUID 长度码（控制类型字节的高 3 位） */
 #define PW_BNEP_UUID_NONE           0

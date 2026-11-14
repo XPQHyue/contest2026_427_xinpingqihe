@@ -34,3 +34,9 @@ __pycache__/
 
 # Local scratch (DO NOT ignore logs/ itself)
 /tmp/
+
+# 本地凭据 / 构建产物（2026-11-14 追加）
+pw_llm_default.h
+cmake_out/
+build/
+*.bak-*
